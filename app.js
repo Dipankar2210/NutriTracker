@@ -1,0 +1,1010 @@
+(function () {
+  const GOALS = {
+    calories: 2400,
+    protein: 90,
+    carbs: 275,
+    fat: 70,
+    fiber: 30,
+    sodium: 2300,
+    sugar: 50,
+    saturatedFat: 20,
+    cholesterol: 300,
+    potassium: 3400,
+    calcium: 1000,
+    iron: 18,
+    vitaminC: 90
+  };
+
+  const UNIT_FACTORS = {
+    serving: 1,
+    bowl: 1,
+    plate: 1,
+    cup: 0.5,
+    cups: 0.5,
+    piece: 0.2,
+    pieces: 0.2,
+    gram: 1 / 350,
+    grams: 1 / 350,
+    g: 1 / 350,
+    tbsp: 0.06
+  };
+
+  const CITY_OPTIONS_BY_LOCATION = {
+    India: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Kolkata", "Mumbai", "Pune"],
+    "South Asia": ["Colombo", "Dhaka", "Islamabad", "Karachi", "Kathmandu", "Lahore"],
+    "North America": ["Chicago", "Los Angeles", "New York", "Phoenix", "Toronto", "Vancouver"],
+    "Latin America": ["Bogota", "Buenos Aires", "Lima", "Mexico City", "Rio de Janeiro", "Santiago", "Sao Paulo"],
+    Europe: ["Amsterdam", "Berlin", "Dublin", "London", "Madrid", "Paris", "Rome"],
+    "East Asia": ["Beijing", "Hong Kong", "Seoul", "Shanghai", "Taipei", "Tokyo"],
+    "Southeast Asia": ["Bangkok", "Ho Chi Minh City", "Jakarta", "Kuala Lumpur", "Manila", "Singapore"],
+    "Middle East": ["Baghdad", "Dubai", "Istanbul", "Jerusalem", "Riyadh", "Tehran"],
+    Africa: ["Cairo", "Cape Town", "Johannesburg", "Lagos", "Nairobi"],
+    Oceania: ["Auckland", "Brisbane", "Melbourne", "Perth", "Sydney"]
+  };
+
+  const state = {
+    references: [],
+    ingredientReferences: [],
+    items: [],
+    photoDataUrl: "",
+    fileName: "",
+    history: readHistory()
+  };
+
+  const els = {};
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("DOMContentLoaded", init);
+  }
+
+  function init() {
+    bindElements();
+    setDefaultTime();
+    setDetectedLocation();
+    bindEvents();
+    renderHistory();
+    loadFoodReference();
+  }
+
+  function bindElements() {
+    [
+      "referenceStatus",
+      "photoInput",
+      "uploadPanel",
+      "workspace",
+      "mealPreview",
+      "mealType",
+      "mealTime",
+      "userLocation",
+      "locationSuggestions",
+      "userCity",
+      "citySuggestions",
+      "saveConsent",
+      "analyzeButton",
+      "totalCalories",
+      "totalProtein",
+      "totalCarbs",
+      "totalFat",
+      "proteinBar",
+      "carbBar",
+      "fatBar",
+      "analysisNote",
+      "addItemButton",
+      "itemsBody",
+      "generalNutrients",
+      "carbNutrients",
+      "lipidNutrients",
+      "microNutrients",
+      "saveMealButton",
+      "saveMessage",
+      "historyList",
+      "clearHistoryButton"
+    ].forEach((id) => {
+      els[id] = document.getElementById(id);
+    });
+  }
+
+  function bindEvents() {
+    els.photoInput.addEventListener("change", handlePhotoUpload);
+    els.userLocation.addEventListener("change", handleLocationChange);
+    els.userCity.addEventListener("change", analyzeCurrentPhoto);
+    els.analyzeButton.addEventListener("click", analyzeCurrentPhoto);
+    els.addItemButton.addEventListener("click", () => {
+      state.items.push(createItemFromReference(findReference("Grilled chicken salad"), 0.45, "Added manually. Confirm details."));
+      renderAll();
+    });
+    els.saveMealButton.addEventListener("click", saveReviewedMeal);
+    els.clearHistoryButton.addEventListener("click", clearHistory);
+  }
+
+  function setDefaultTime() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    els.mealTime.value = now.toISOString().slice(0, 16);
+  }
+
+  function setDetectedLocation() {
+    detectInternetLocation()
+      .then(applyDetectedLocation)
+      .catch(() => renderCitySuggestions());
+  }
+
+  function applyDetectedLocation(detected) {
+    if (!detected) return;
+    if (!els.userLocation.value && detected.location) els.userLocation.value = detected.location;
+    if (!els.userCity.value && detected.city) els.userCity.value = detected.city;
+    renderCitySuggestions();
+  }
+
+  async function detectInternetLocation() {
+    const coordinates = await getBrowserCoordinates().catch(() => null);
+    if (coordinates) {
+      const url = `/api/reverse-geocode?lat=${encodeURIComponent(coordinates.latitude)}&lon=${encodeURIComponent(coordinates.longitude)}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (response.ok) return normalizeInternetLocation(await response.json());
+    }
+
+    const response = await fetch("https://ipapi.co/json/", { cache: "no-store" });
+    if (!response.ok) return { location: "", city: "" };
+    return normalizeInternetLocation(await response.json());
+  }
+
+  function getBrowserCoordinates() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Browser location unavailable."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => resolve(position.coords),
+        reject,
+        { enableHighAccuracy: false, maximumAge: 30 * 60 * 1000, timeout: 6000 }
+      );
+    });
+  }
+
+  function normalizeInternetLocation(payload) {
+    const address = payload && payload.address ? payload.address : {};
+    const countryCode = String(payload.country_code || address.country_code || "").toUpperCase();
+    const city = payload.city
+      || payload.town
+      || payload.village
+      || payload.municipality
+      || address.city
+      || address.town
+      || address.village
+      || address.municipality
+      || "";
+    return {
+      location: countryToFoodRegion(countryCode),
+      city
+    };
+  }
+
+  function countryToFoodRegion(country) {
+    const regions = {
+      IN: "India",
+      PK: "South Asia",
+      BD: "South Asia",
+      LK: "South Asia",
+      NP: "South Asia",
+      US: "North America",
+      CA: "North America",
+      MX: "Latin America",
+      BR: "Latin America",
+      AR: "Latin America",
+      CO: "Latin America",
+      PE: "Latin America",
+      CL: "Latin America",
+      GB: "Europe",
+      IE: "Europe",
+      FR: "Europe",
+      DE: "Europe",
+      IT: "Europe",
+      ES: "Europe",
+      NL: "Europe",
+      PT: "Europe",
+      GR: "Europe",
+      CN: "East Asia",
+      JP: "East Asia",
+      KR: "East Asia",
+      TH: "Southeast Asia",
+      VN: "Southeast Asia",
+      ID: "Southeast Asia",
+      MY: "Southeast Asia",
+      PH: "Southeast Asia",
+      SG: "Southeast Asia",
+      AE: "Middle East",
+      SA: "Middle East",
+      TR: "Middle East",
+      IR: "Middle East",
+      NG: "Africa",
+      KE: "Africa",
+      ZA: "Africa",
+      EG: "Africa",
+      MA: "Africa",
+      AU: "Oceania",
+      NZ: "Oceania"
+    };
+    return regions[country] || "";
+  }
+
+  async function loadFoodReference() {
+    try {
+      const response = await fetch("foodtable.md", { cache: "no-store" });
+      if (!response.ok) throw new Error("foodtable.md unavailable");
+      const markdown = await response.text();
+      state.references = parseFoodTable(markdown);
+      state.ingredientReferences = parseIngredientNutrition(markdown);
+      els.referenceStatus.textContent = "Nutrition data ready";
+      renderSuggestionLists();
+    } catch (error) {
+      state.references = fallbackReferences();
+      state.ingredientReferences = fallbackIngredientReferences();
+      els.referenceStatus.textContent = "Basic nutrition data ready";
+      renderSuggestionLists();
+    }
+  }
+
+  function renderSuggestionLists() {
+    if (!els.locationSuggestions) return;
+    const locations = uniqueValues(state.references.flatMap((ref) => splitLocation(ref.region)));
+    els.locationSuggestions.innerHTML = locations
+      .map((location) => `<option value="${escapeAttr(location)}"></option>`)
+      .join("");
+    renderCitySuggestions();
+  }
+
+  function renderCitySuggestions() {
+    if (!els.citySuggestions) return;
+    els.citySuggestions.innerHTML = citySuggestionsForLocation(els.userLocation.value)
+      .map((city) => `<option value="${escapeAttr(city)}"></option>`)
+      .join("");
+  }
+
+  function handleLocationChange() {
+    const options = citySuggestionsForLocation(els.userLocation.value);
+    if (els.userCity.value && !options.includes(els.userCity.value)) {
+      els.userCity.value = "";
+    }
+    renderCitySuggestions();
+    analyzeCurrentPhoto();
+  }
+
+  function citySuggestionsForLocation(location) {
+    const normalized = String(location || "").toLowerCase();
+    const key = Object.keys(CITY_OPTIONS_BY_LOCATION).find((entry) => entry.toLowerCase() === normalized)
+      || Object.keys(CITY_OPTIONS_BY_LOCATION).find((entry) => normalized.includes(entry.toLowerCase()) || entry.toLowerCase().includes(normalized));
+    return key ? CITY_OPTIONS_BY_LOCATION[key] : [];
+  }
+
+  function parseFoodTable(markdown) {
+    return markdown
+      .split(/\r?\n/)
+      .filter((line) => /^\|\s*\d+\s*\|/.test(line))
+      .map((line) => line.split("|").map((cell) => cell.trim()))
+      .map((cells) => ({
+        id: Number(cells[1]),
+        region: cells[2],
+        name: cells[3],
+        staples: cells[4],
+        avgQty: cells[5],
+        diet: cells[6],
+        calories: number(cells[7]),
+        protein: number(cells[8]),
+        carbs: number(cells[9]),
+        fat: number(cells[10]),
+        fiber: number(cells[11]),
+        sodium: number(cells[12]),
+        notes: cells[13] || ""
+      }))
+      .filter((item) => item.name && item.calories);
+  }
+
+  function parseIngredientNutrition(markdown) {
+    const inSection = markdown.split("## Ingredient Nutrition Reference Baseline")[1] || "";
+    return inSection
+      .split(/\r?\n/)
+      .filter((line) => /^\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*\d/.test(line))
+      .map((line) => line.split("|").map((cell) => cell.trim()))
+      .map((cells) => ({
+        name: cells[1],
+        category: cells[2],
+        commonState: cells[3],
+        calories: number(cells[4]),
+        protein: number(cells[5]),
+        carbs: number(cells[6]),
+        fat: number(cells[7]),
+        fiber: number(cells[8]),
+        sugar: number(cells[9]),
+        sodium: number(cells[10]),
+        dataConfidence: cells[11],
+        notes: cells[12] || "",
+        per100: true
+      }))
+      .filter((item) => item.name && item.calories);
+  }
+
+  function handlePhotoUpload(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    state.fileName = file.name;
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.photoDataUrl = reader.result;
+      els.mealPreview.src = state.photoDataUrl;
+      els.workspace.hidden = false;
+      els.analysisNote.textContent = "Photo ready. Run analysis, then review every item.";
+      analyzeCurrentPhoto();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function analyzeCurrentPhoto() {
+    if (!state.photoDataUrl) {
+      els.analysisNote.textContent = "Choose a meal photo first.";
+      return;
+    }
+    els.analyzeButton.disabled = true;
+    els.analyzeButton.textContent = "Analyzing...";
+    els.analysisNote.textContent = "Checking the meal photo and identifying visible foods.";
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageDataUrl: state.photoDataUrl,
+          location: els.userLocation.value,
+          city: els.userCity.value
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Image analysis failed.");
+      state.items = payload.items.map(createItemFromAiComponent);
+      els.analysisNote.textContent = `${payload.summary} Review every estimate before saving.`;
+    } catch (error) {
+      state.items = [];
+      els.analysisNote.textContent = `${error.message} No default food items were used. Please try again after analysis is available.`;
+    } finally {
+      els.analyzeButton.disabled = false;
+      els.analyzeButton.textContent = "Analyze photo";
+      renderAll();
+    }
+  }
+
+  function runDemoVisionAnalysis({ fileName, location, references }) {
+    const text = `${fileName} ${location}`.toLowerCase();
+    const exactMatches = references.filter((ref) => {
+      const nameParts = ref.name.toLowerCase().split(/\s+/).filter((part) => part.length > 3);
+      return nameParts.some((part) => text.includes(part));
+    });
+    const regionalMatches = references.filter((ref) => ref.region.toLowerCase().includes(location.toLowerCase()));
+    const selected = uniqueByName([...exactMatches, ...regionalMatches]).slice(0, exactMatches.length ? 2 : 1);
+
+    if (!selected.length) {
+      return {
+        note: "Low confidence: no strong nutrition match. Confirm the placeholder before saving.",
+        items: [createUnclearItem()]
+      };
+    }
+
+    const items = selected.map((ref, index) => createItemFromReference(
+      ref,
+      exactMatches.length ? 0.82 - index * 0.08 : 0.58,
+      exactMatches.length ? "Matched likely meal name." : "Matched likely regional meal pattern; confirm visible foods."
+    ));
+
+    if (!exactMatches.length) items.push(createUnclearItem());
+    return {
+      note: "Meal estimate is ready. Review quantity, unit, and low-confidence rows before saving.",
+      items
+    };
+  }
+
+  function uniqueByName(items) {
+    const seen = new Set();
+    return items.filter((item) => {
+      const key = item.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function createItemFromReference(ref, confidence, note) {
+    const source = ref || fallbackReferences()[0];
+    return {
+      id: crypto.randomUUID(),
+      foodName: source.name,
+      quantity: 1,
+      unit: "serving",
+      confidence,
+      uncertaintyNote: note,
+      needsUserReview: confidence < 0.7,
+      sourceName: "Meal nutrition estimate",
+      base: source
+    };
+  }
+
+  function createItemFromAiComponent(component) {
+    const ingredient = findIngredientReference(component.foodName);
+    const meal = findMealReference(component.foodName);
+    const base = ingredient || meal || {
+      name: component.foodName,
+      calories: 250,
+      protein: 8,
+      carbs: 30,
+      fat: 10,
+      fiber: 3,
+      sugar: 4,
+      sodium: 400,
+      notes: "No matching nutrition baseline found for this component.",
+      per100: true
+    };
+    const confidence = clamp(number(component.confidence), 0.05, 0.95);
+    return {
+      id: crypto.randomUUID(),
+      foodName: component.foodName,
+      quantity: number(component.quantity) || 1,
+      unit: component.unit || "grams",
+      confidence,
+      uncertaintyNote: `${component.uncertaintyNote} ${component.evidence ? `Basis: ${component.evidence}` : ""}`.trim(),
+      needsUserReview: confidence < 0.72 || !ingredient,
+      sourceName: ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
+      base
+    };
+  }
+
+  function createUnclearItem() {
+    return {
+      id: crypto.randomUUID(),
+      foodName: "Unclear food item",
+      quantity: 1,
+      unit: "serving",
+      confidence: 0.34,
+      uncertaintyNote: "Please identify this item manually.",
+      needsUserReview: true,
+      sourceName: "User review needed",
+      base: {
+        name: "Unclear food item",
+        calories: 250,
+        protein: 8,
+        carbs: 30,
+        fat: 10,
+        fiber: 3,
+        sodium: 400,
+        notes: "Placeholder estimate until reviewed."
+      }
+    };
+  }
+
+  function renderAll() {
+    renderItems();
+    renderTotals();
+  }
+
+  function renderItems() {
+    els.itemsBody.innerHTML = "";
+    state.items.forEach((item) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>
+          <input value="${escapeAttr(item.foodName)}" aria-label="Food name" data-field="foodName" list="foodSuggestions-${item.id}" />
+          <datalist id="foodSuggestions-${item.id}">
+            ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
+          </datalist>
+        </td>
+        <td><input type="number" min="0" step="0.25" value="${item.quantity}" aria-label="Quantity" data-field="quantity" /></td>
+        <td>
+          <select data-field="unit" aria-label="Unit">
+            ${["serving", "cup", "cups", "piece", "pieces", "grams", "bowl", "plate", "tbsp"].map((unit) => `<option ${unit === item.unit ? "selected" : ""}>${unit}</option>`).join("")}
+          </select>
+        </td>
+        <td>${confidenceMarkup(item)}</td>
+        <td class="review-note">${item.needsUserReview ? "Confirm manually" : "Review optional"}<br>${escapeHtml(item.uncertaintyNote)}</td>
+        <td><button class="danger" data-remove="${item.id}">Remove</button></td>
+      `;
+      row.querySelectorAll("[data-field]").forEach((input) => {
+        input.addEventListener("input", (event) => updateItem(item.id, event.target.dataset.field, event.target.value));
+        if (input.dataset.field === "foodName") {
+          input.addEventListener("change", renderAll);
+        }
+      });
+      row.querySelector("[data-remove]").addEventListener("click", () => removeItem(item.id));
+      els.itemsBody.appendChild(row);
+    });
+  }
+
+  function confidenceMarkup(item) {
+    const confidence = item.confidence;
+    const percent = Math.round(confidence * 100);
+    const level = confidence < 0.5 ? "low" : confidence < 0.7 ? "medium" : "";
+    const basis = confidenceBasis(item);
+    return `<span class="confidence"><i class="dot ${level}"></i>${percent}% <button class="info-button" type="button" title="${escapeAttr(basis)}" aria-label="${escapeAttr(basis)}">i</button></span>`;
+  }
+
+  function updateItem(id, field, value) {
+    const item = state.items.find((entry) => entry.id === id);
+    if (!item) return;
+    if (field === "quantity") item.quantity = Math.max(0, number(value));
+    if (field === "unit") item.unit = value;
+    if (field === "foodName") {
+      applyFoodNameChange(item, value, findReference);
+    }
+    renderTotals();
+  }
+
+  function removeItem(id) {
+    state.items = state.items.filter((item) => item.id !== id);
+    renderAll();
+  }
+
+  function renderTotals() {
+    const totals = calculateTotals(state.items);
+    els.totalCalories.textContent = Math.round(totals.calories);
+    els.totalProtein.textContent = `${round1(totals.protein)}g`;
+    els.totalCarbs.textContent = `${round1(totals.carbs)}g`;
+    els.totalFat.textContent = `${round1(totals.fat)}g`;
+    setBar(els.proteinBar, totals.protein, GOALS.protein);
+    setBar(els.carbBar, totals.carbs, GOALS.carbs);
+    setBar(els.fatBar, totals.fat, GOALS.fat);
+
+    renderNutrients(els.generalNutrients, [
+      ["Energy", totals.calories, "kcal", GOALS.calories],
+      ["Protein", totals.protein, "g", GOALS.protein],
+      ["Fiber", totals.fiber, "g", GOALS.fiber],
+      ["Sodium", totals.sodium, "mg", GOALS.sodium]
+    ]);
+    renderNutrients(els.carbNutrients, [
+      ["Carbs", totals.carbs, "g", GOALS.carbs],
+      ["Fiber", totals.fiber, "g", GOALS.fiber],
+      ["Sugar", totals.sugar, "g", GOALS.sugar],
+      ["Added sugar", totals.addedSugar, "g", null]
+    ]);
+    renderNutrients(els.lipidNutrients, [
+      ["Fat", totals.fat, "g", GOALS.fat],
+      ["Saturated fat", totals.saturatedFat, "g", GOALS.saturatedFat],
+      ["Trans fat", totals.transFat, "g", null],
+      ["Cholesterol", totals.cholesterol, "mg", GOALS.cholesterol]
+    ]);
+    renderNutrients(els.microNutrients, [
+      ["Potassium", totals.potassium, "mg", GOALS.potassium],
+      ["Calcium", totals.calcium, "mg", GOALS.calcium],
+      ["Iron", totals.iron, "mg", GOALS.iron],
+      ["Vitamin C", totals.vitaminC, "mg", GOALS.vitaminC]
+    ]);
+  }
+
+  function renderNutrients(container, rows) {
+    container.innerHTML = rows.map(([label, value, unit, goal]) => {
+      const percent = goal ? Math.round((value / goal) * 100) : null;
+      const targetClass = percent === null ? "" : percent > 140 ? "high" : percent < 60 ? "warn" : "";
+      return `
+        <div class="nutrient-row">
+          <span>${label}</span>
+          <strong>${round1(value)} ${unit}</strong>
+          <span class="target ${targetClass}">${percent === null ? "No target" : `${percent}%`}</span>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function setBar(element, value, goal) {
+    element.style.width = `${Math.min(100, Math.round((value / goal) * 100))}%`;
+  }
+
+  function calculateTotals(items) {
+    return items.reduce((totals, item) => {
+      const factor = itemFactor(item);
+      totals.calories += item.base.calories * factor;
+      totals.protein += item.base.protein * factor;
+      totals.carbs += item.base.carbs * factor;
+      totals.fat += item.base.fat * factor;
+      totals.fiber += item.base.fiber * factor;
+      totals.sodium += item.base.sodium * factor;
+      totals.sugar += estimateSugar(item.base) * factor;
+      totals.addedSugar += estimateAddedSugar(item.base) * factor;
+      totals.saturatedFat += item.base.fat * 0.32 * factor;
+      totals.transFat += item.base.fat > 35 ? 0.2 * factor : 0;
+      totals.cholesterol += estimateCholesterol(item.base) * factor;
+      totals.potassium += (item.base.fiber * 95 + item.base.protein * 12) * factor;
+      totals.calcium += estimateCalcium(item.base) * factor;
+      totals.iron += (item.base.protein * 0.12 + item.base.fiber * 0.08) * factor;
+      totals.vitaminC += estimateVitaminC(item.base) * factor;
+      return totals;
+    }, emptyTotals());
+  }
+
+  function emptyTotals() {
+    return {
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      fiber: 0,
+      sodium: 0,
+      sugar: 0,
+      addedSugar: 0,
+      saturatedFat: 0,
+      transFat: 0,
+      cholesterol: 0,
+      potassium: 0,
+      calcium: 0,
+      iron: 0,
+      vitaminC: 0
+    };
+  }
+
+  function itemFactor(item) {
+    if (item.base && item.base.per100) {
+      return unitToGrams(item.unit, item.quantity, item.foodName) / 100;
+    }
+    const unitFactor = UNIT_FACTORS[item.unit] || 1;
+    return Math.max(0, number(item.quantity)) * unitFactor;
+  }
+
+  function unitToGrams(unit, quantity, foodName) {
+    const qty = Math.max(0, number(quantity));
+    const normalized = String(unit || "").toLowerCase();
+    if (["gram", "grams", "g"].includes(normalized)) return qty;
+    if (normalized === "tbsp") return qty * 15;
+    if (["cup", "cups"].includes(normalized)) return qty * 150;
+    if (["piece", "pieces"].includes(normalized)) return qty * estimatePieceGrams(foodName);
+    return qty * 100;
+  }
+
+  function estimatePieceGrams(foodName) {
+    const name = String(foodName || "").toLowerCase();
+    if (/egg/.test(name)) return 50;
+    if (/apple|orange|banana|potato|tomato/.test(name)) return 120;
+    if (/chicken|fish|steak|bread|roti|naan|tortilla/.test(name)) return 80;
+    return 100;
+  }
+
+  function estimateSugar(base) {
+    if (base.sugar !== undefined) return base.sugar;
+    const text = `${base.name} ${base.staples || ""} ${base.notes || ""}`.toLowerCase();
+    if (/fruit|syrup|sweet|pancake|bbq|chutney/.test(text)) return Math.min(42, base.carbs * 0.25);
+    return Math.min(18, base.carbs * 0.1);
+  }
+
+  function estimateAddedSugar(base) {
+    return /syrup|bbq|sweet|sauce|chutney/i.test(`${base.name} ${base.notes || ""}`) ? 8 : 0;
+  }
+
+  function estimateCholesterol(base) {
+    return /chicken|beef|egg|fish|pork|mutton|lamb|meat|turkey/i.test(`${base.name} ${base.staples || ""}`) ? 75 : 8;
+  }
+
+  function estimateCalcium(base) {
+    return /paneer|cheese|yogurt|curd|milk|halloumi/i.test(`${base.name} ${base.staples || ""}`) ? 280 : 80;
+  }
+
+  function estimateVitaminC(base) {
+    return /salad|vegetable|tomato|pepper|fruit|salsa|lemon|greens/i.test(`${base.name} ${base.staples || ""} ${base.notes || ""}`) ? 45 : 12;
+  }
+
+  function saveReviewedMeal() {
+    if (!state.items.length) {
+      els.saveMessage.textContent = "Add or analyze at least one item.";
+      return;
+    }
+    const needsReview = state.items.some((item) => item.needsUserReview && item.foodName.toLowerCase().includes("unclear"));
+    const missingNutrition = state.items.some((item) => item.sourceName === "Manual entry, nutrition lookup needed");
+    if (needsReview) {
+      els.saveMessage.textContent = "Update unclear items before saving.";
+      return;
+    }
+    if (missingNutrition) {
+      els.saveMessage.textContent = "Choose a suggested food match before saving unsupported items.";
+      return;
+    }
+    const totals = calculateTotals(state.items);
+    const meal = {
+      id: crypto.randomUUID(),
+      mealType: els.mealType.value,
+      eatenAt: els.mealTime.value,
+      location: els.userLocation.value,
+      city: els.userCity.value,
+      photo: els.saveConsent.checked ? state.photoDataUrl : "",
+      items: state.items.map((item) => ({
+        foodName: item.foodName,
+        quantity: item.quantity,
+        unit: item.unit,
+        confidence: item.confidence,
+        sourceName: item.sourceName
+      })),
+      totals,
+      savedAt: new Date().toISOString()
+    };
+    state.history.unshift(meal);
+    localStorage.setItem("nutritracker.history", JSON.stringify(state.history.slice(0, 25)));
+    els.saveMessage.textContent = "Saved reviewed meal.";
+    renderHistory();
+  }
+
+  function renderHistory() {
+    if (!state.history.length) {
+      els.historyList.innerHTML = "<p class=\"warning\">No reviewed meals saved yet.</p>";
+      return;
+    }
+    els.historyList.innerHTML = state.history.map((meal) => `
+      <article class="history-item">
+        ${meal.photo ? `<img src="${meal.photo}" alt="">` : "<div></div>"}
+        <div>
+          <strong>${escapeHtml(meal.mealType)} - ${Math.round(meal.totals.calories)} kcal estimate</strong>
+          <span>${formatDate(meal.eatenAt)} - ${meal.items.length} items - ${round1(meal.totals.protein)}g protein</span>
+        </div>
+        <button class="secondary" data-load="${meal.id}">Reopen</button>
+      </article>
+    `).join("");
+    els.historyList.querySelectorAll("[data-load]").forEach((button) => {
+      button.addEventListener("click", () => reopenMeal(button.dataset.load));
+    });
+  }
+
+  function reopenMeal(id) {
+    const meal = state.history.find((entry) => entry.id === id);
+    if (!meal) return;
+    state.items = meal.items.map((saved) => {
+      const ref = findReference(saved.foodName) || fallbackReferences()[0];
+      return {
+        id: crypto.randomUUID(),
+        foodName: saved.foodName,
+        quantity: saved.quantity,
+        unit: saved.unit,
+        confidence: saved.confidence,
+        uncertaintyNote: "Loaded from reviewed history.",
+        needsUserReview: false,
+        sourceName: saved.sourceName,
+        base: ref
+      };
+    });
+    els.mealType.value = meal.mealType;
+    els.mealTime.value = meal.eatenAt;
+    els.userLocation.value = meal.location;
+    els.userCity.value = meal.city || "";
+    renderCitySuggestions();
+    if (meal.photo) {
+      state.photoDataUrl = meal.photo;
+      els.mealPreview.src = meal.photo;
+    } else {
+      state.photoDataUrl = "";
+      state.fileName = "";
+      els.mealPreview.removeAttribute("src");
+    }
+    els.workspace.hidden = false;
+    els.analysisNote.textContent = "Saved meal reopened. Edit and save again if needed.";
+    renderAll();
+  }
+
+  function clearHistory() {
+    state.history = [];
+    localStorage.removeItem("nutritracker.history");
+    renderHistory();
+  }
+
+  function readHistory() {
+    try {
+      return JSON.parse(localStorage.getItem("nutritracker.history") || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function findReference(name) {
+    return findIngredientReference(name) || findMealReference(name);
+  }
+
+  function applyFoodNameChange(item, value, lookup) {
+    item.foodName = value;
+    const match = lookup(value);
+    if (match) {
+      item.base = match;
+      item.sourceName = match.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
+      item.confidence = Math.max(item.confidence, 0.72);
+      item.needsUserReview = false;
+      item.uncertaintyNote = "Matched typed food name to nutrition data.";
+      return item;
+    }
+
+    item.base = createManualNutritionPlaceholder(value);
+    item.sourceName = "Manual entry, nutrition lookup needed";
+    item.confidence = 0.2;
+    item.needsUserReview = true;
+    item.uncertaintyNote = "No nutrition reference matched this food name. Choose a suggestion or add nutrition data before saving.";
+    return item;
+  }
+
+  function createManualNutritionPlaceholder(name) {
+    return {
+      name,
+      calories: 0,
+      protein: 0,
+      carbs: 0,
+      fat: 0,
+      fiber: 0,
+      sugar: 0,
+      sodium: 0,
+      notes: "Nutrition not calculated until this item matches a reference.",
+      per100: true
+    };
+  }
+
+  function findMealReference(name) {
+    const query = String(name || "").toLowerCase().trim();
+    if (!query) return null;
+    return state.references.find((ref) => ref.name.toLowerCase() === query)
+      || state.references.find((ref) => ref.name.toLowerCase().includes(query) || query.includes(ref.name.toLowerCase()));
+  }
+
+  function findIngredientReference(name) {
+    const query = String(name || "").toLowerCase().trim();
+    if (!query) return null;
+    return state.ingredientReferences.find((ref) => ref.name.toLowerCase() === query)
+      || state.ingredientReferences.find((ref) => ref.name.toLowerCase().includes(query) || query.includes(ref.name.toLowerCase()));
+  }
+
+  function foodSuggestions(query) {
+    const normalized = String(query || "").toLowerCase().trim();
+    const ingredientMatches = state.ingredientReferences
+      .filter((ref) => {
+        if (!normalized || normalized.length < 2) return true;
+        return ref.name.toLowerCase().includes(normalized)
+          || ref.category.toLowerCase().includes(normalized);
+      })
+      .slice(0, 40)
+      .map((ref) => ref.name);
+    const mealMatches = state.references
+      .filter((ref) => {
+        if (!normalized || normalized.length < 2) return true;
+        return ref.name.toLowerCase().includes(normalized)
+          || ref.staples.toLowerCase().includes(normalized)
+          || normalized.split(/\s+/).some((part) => part.length > 2 && ref.name.toLowerCase().includes(part));
+      })
+      .slice(0, 20)
+      .map((ref) => ref.name);
+    return uniqueValues([...ingredientMatches, ...mealMatches]);
+  }
+
+  function confidenceBasis(item) {
+    if (item.confidence >= 0.75) {
+      return "High confidence: the visible food has a strong nutrition match.";
+    }
+    if (item.confidence >= 0.5) {
+      return "Medium confidence: partial food or meal pattern match. Please review quantity.";
+    }
+    return "Low confidence: unclear image result or no strong nutrition match. Manual confirmation needed.";
+  }
+
+  function splitLocation(region) {
+    return String(region || "")
+      .split(/\s*\/\s*|\s*,\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  function uniqueValues(values) {
+    return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }
+
+  function fallbackReferences() {
+    return [
+      {
+        id: 80,
+        region: "North America",
+        name: "Grilled chicken salad",
+        staples: "Chicken, greens, vegetables, dressing",
+        avgQty: "150 g chicken + large salad",
+        diet: "Omnivore",
+        calories: 520,
+        protein: 42,
+        carbs: 24,
+        fat: 28,
+        fiber: 8,
+        sodium: 850,
+        notes: "Vitamin A, K, C; dressing matters"
+      },
+      {
+        id: 1,
+        region: "India / South Asia",
+        name: "Dal rice",
+        staples: "Lentils, rice, tempering oil",
+        avgQty: "1.5 cups rice + 1 cup dal",
+        diet: "Vegetarian",
+        calories: 560,
+        protein: 20,
+        carbs: 95,
+        fat: 12,
+        fiber: 13,
+        sodium: 800,
+        notes: "Iron, folate, potassium; oil changes calories"
+      }
+    ];
+  }
+
+  function fallbackIngredientReferences() {
+    return [
+      {
+        name: "Chicken breast",
+        category: "Poultry",
+        commonState: "Cooked skinless",
+        calories: 165,
+        protein: 31,
+        carbs: 0,
+        fat: 3.6,
+        fiber: 0,
+        sugar: 0,
+        sodium: 74,
+        dataConfidence: "High",
+        notes: "Fallback per 100 g",
+        per100: true
+      },
+      {
+        name: "Potato",
+        category: "Vegetable",
+        commonState: "Baked",
+        calories: 93,
+        protein: 2.5,
+        carbs: 21.2,
+        fat: 0.1,
+        fiber: 2.2,
+        sugar: 1.2,
+        sodium: 10,
+        dataConfidence: "High",
+        notes: "Fallback per 100 g",
+        per100: true
+      }
+    ];
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function formatDate(value) {
+    if (!value) return "No date";
+    return new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function number(value) {
+    const parsed = Number.parseFloat(String(value).replace(/,/g, ""));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function round1(value) {
+    return Math.round(value * 10) / 10;
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#039;"
+    }[char]));
+  }
+
+  function escapeAttr(value) {
+    return escapeHtml(value);
+  }
+
+  if (typeof module !== "undefined") {
+    module.exports = {
+      parseFoodTable,
+      parseIngredientNutrition,
+      calculateTotals,
+      fallbackReferences,
+      fallbackIngredientReferences,
+      createItemFromReference,
+      createItemFromAiComponent,
+      applyFoodNameChange,
+      normalizeInternetLocation,
+      citySuggestionsForLocation,
+      createManualNutritionPlaceholder,
+      createUnclearItem,
+      runDemoVisionAnalysis
+    };
+  }
+})();

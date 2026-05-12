@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NutriTracker MVP</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar">
+        <div class="brand-intro">
+          <p class="eyebrow">Meal nutrition tracker</p>
+          <h1>NutriTracker</h1>
+          <p class="brand-copy">Upload a meal photo, check the detected foods, and understand estimated calories, protein, carbs, fat, and key nutrients before saving your meal record.</p>
+          <p class="estimate-note">Review meal estimates before saving. Nutrition values are estimates unless verified by trusted package or nutrition database data.</p>
+        </div>
+        <div class="status-pill" id="referenceStatus">Preparing nutrition data</div>
+      </section>
+
+      <section class="quick-guide" aria-label="How to use NutriTracker">
+        <div>
+          <strong>1. Upload</strong>
+          <span>Choose or take a meal photo.</span>
+        </div>
+        <div>
+          <strong>2. Review</strong>
+          <span>Confirm foods, quantities, location, and city.</span>
+        </div>
+        <div>
+          <strong>3. Save</strong>
+          <span>Store the reviewed meal by date and meal type.</span>
+        </div>
+      </section>
+
+      <section class="upload-panel" id="uploadPanel">
+        <div class="upload-copy">
+          <h2>Upload a meal photo</h2>
+          <p>Nutrition values are estimates. Correct the food items and quantities before saving.</p>
+        </div>
+        <label class="dropzone" for="photoInput">
+          <span class="dropzone-icon">+</span>
+          <span>Choose meal photo</span>
+          <small>PNG, JPG, or WebP</small>
+        </label>
+        <input id="photoInput" type="file" accept="image/*" />
+      </section>
+
+      <section class="workspace" id="workspace" hidden>
+        <aside class="meal-card">
+          <img id="mealPreview" alt="Uploaded meal preview" />
+          <div class="field-grid">
+            <label>
+              Meal type
+              <select id="mealType">
+                <option>Breakfast</option>
+                <option selected>Lunch</option>
+                <option>Dinner</option>
+                <option>Snack</option>
+                <option>Custom</option>
+              </select>
+            </label>
+            <label>
+              Date and time
+              <input id="mealTime" type="datetime-local" />
+            </label>
+            <label>
+              Location
+              <input id="userLocation" type="text" placeholder="Auto detecting location" list="locationSuggestions" />
+              <datalist id="locationSuggestions"></datalist>
+            </label>
+            <label>
+              City
+              <input id="userCity" type="text" placeholder="Auto detecting city" list="citySuggestions" />
+              <datalist id="citySuggestions"></datalist>
+            </label>
+            <label class="consent-check">
+              <input id="saveConsent" type="checkbox" checked />
+              <span>Store this meal picture with the reviewed meal.</span>
+            </label>
+          </div>
+          <button class="primary" id="analyzeButton">Analyze photo</button>
+          <p class="warning">The app checks the photo and estimates visible foods. Review every item before saving.</p>
+        </aside>
+
+        <section class="dashboard">
+          <div class="summary-grid">
+            <article class="summary-card calories">
+              <span>Estimated calories</span>
+              <strong id="totalCalories">0</strong>
+              <small>kcal</small>
+            </article>
+            <article class="summary-card">
+              <span>Protein</span>
+              <strong id="totalProtein">0g</strong>
+              <div class="bar"><i id="proteinBar"></i></div>
+            </article>
+            <article class="summary-card">
+              <span>Carbs</span>
+              <strong id="totalCarbs">0g</strong>
+              <div class="bar blue"><i id="carbBar"></i></div>
+            </article>
+            <article class="summary-card">
+              <span>Fat</span>
+              <strong id="totalFat">0g</strong>
+              <div class="bar red"><i id="fatBar"></i></div>
+            </article>
+          </div>
+
+          <div class="section-head">
+            <div>
+              <h2>Detected food items</h2>
+              <p id="analysisNote">Upload a photo, then review the detected items.</p>
+            </div>
+            <button id="addItemButton" class="secondary">Add item</button>
+          </div>
+          <div class="items-table-wrap">
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th>Food</th>
+                  <th>Qty</th>
+                  <th>Unit</th>
+                  <th>Confidence</th>
+                  <th>Review</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="itemsBody"></tbody>
+            </table>
+          </div>
+
+          <div class="details-grid">
+            <section class="nutrient-panel">
+              <h3>General nutrition</h3>
+              <div id="generalNutrients"></div>
+            </section>
+            <section class="nutrient-panel">
+              <h3>Carbohydrates</h3>
+              <div id="carbNutrients"></div>
+            </section>
+            <section class="nutrient-panel">
+              <h3>Lipids</h3>
+              <div id="lipidNutrients"></div>
+            </section>
+            <section class="nutrient-panel">
+              <h3>Minerals and notes</h3>
+              <div id="microNutrients"></div>
+            </section>
+          </div>
+
+          <div class="save-row">
+            <button class="primary" id="saveMealButton">Save reviewed meal</button>
+            <span id="saveMessage"></span>
+          </div>
+        </section>
+      </section>
+
+      <section class="history-panel">
+        <div class="section-head">
+          <div>
+            <h2>Saved meals</h2>
+            <p>Date-wise and meal-wise reviewed records.</p>
+          </div>
+          <button id="clearHistoryButton" class="secondary">Clear</button>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

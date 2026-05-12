@@ -1,0 +1,11 @@
+{
+  "name": "nutritracker-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Meal nutrition tracker MVP",
+  "scripts": {
+    "dev": "node scripts/server.js",
+    "build": "node tests/nutrition.test.js",
+    "test": "node tests/nutrition.test.js"
+  }
+}
