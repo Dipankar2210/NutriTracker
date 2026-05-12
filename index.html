@@ -129,6 +129,34 @@
               <tbody id="itemsBody"></tbody>
             </table>
           </div>
+          <p class="items-footnote" id="itemsFootnote"></p>
+
+          <section class="manual-add-panel" id="manualAddPanel" hidden>
+            <div class="section-head compact">
+              <div>
+                <h3>Add food item</h3>
+                <p>Use this for food that was missed by AI or was not visible in the photo.</p>
+              </div>
+            </div>
+            <div class="items-table-wrap">
+              <table class="items-table">
+                <thead>
+                  <tr>
+                    <th>Food</th>
+                    <th>Qty</th>
+                    <th>Unit</th>
+                    <th>Confidence</th>
+                    <th>Review</th>
+                  </tr>
+                </thead>
+                <tbody id="manualDraftBody"></tbody>
+              </table>
+            </div>
+            <div class="manual-add-actions">
+              <button class="primary" id="confirmAddItemButton">Add to list</button>
+              <button class="secondary" id="cancelAddItemButton">Cancel</button>
+            </div>
+          </section>
 
           <div class="details-grid">
             <section class="nutrient-panel">

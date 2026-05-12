@@ -433,6 +433,83 @@ select {
   font-size: 13px;
 }
 
+.items-footnote {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-add-panel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.section-head.compact {
+  margin-bottom: 10px;
+}
+
+.section-head.compact h3 {
+  margin-bottom: 4px;
+}
+
+.manual-add-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.manual-add-actions .primary {
+  width: auto;
+}
+
+.manual-nutrition-row td {
+  background: #fffaf0;
+}
+
+.manual-nutrition-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.manual-nutrition-panel p {
+  margin: 0;
+  color: #7a4d00;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-nutrition-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.manual-nutrition-grid label {
+  gap: 4px;
+  font-size: 12px;
+}
+
+.manual-nutrition-grid span {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.manual-nutrition-grid input {
+  min-width: 0;
+}
+
+.manual-nutrition-grid small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .danger {
   background: transparent;
   color: #b42318;
@@ -545,19 +622,22 @@ select {
   .upload-panel,
   .quick-guide,
   .summary-grid,
-  .details-grid {
+  .details-grid,
+  .manual-nutrition-grid {
     grid-template-columns: 1fr;
   }
 
   .topbar,
   .section-head,
-  .save-row {
+  .save-row,
+  .manual-add-actions {
     align-items: stretch;
     flex-direction: column;
   }
 
   .status-pill,
-  .save-row .primary {
+  .save-row .primary,
+  .manual-add-actions .primary {
     width: 100%;
   }
 }

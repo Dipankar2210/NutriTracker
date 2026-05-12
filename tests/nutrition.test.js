@@ -6,9 +6,12 @@ const {
   parseIngredientNutrition,
   calculateTotals,
   createItemFromReference,
+  createManualAddedItem,
+  createItemFromAiComponent,
   applyFoodNameChange,
   normalizeInternetLocation,
   citySuggestionsForLocation,
+  unitSupportedByReference,
   runDemoVisionAnalysis
 } = require("../app.js");
 
@@ -50,12 +53,45 @@ assert.equal(Math.round(ingredientTotals.protein), 62);
 
 const editedItem = createItemFromReference(dalRice, 0.9, "test");
 applyFoodNameChange(editedItem, "Unsupported mystery food", () => null);
+editedItem.base.calories = 120;
+editedItem.base.protein = null;
+editedItem.base.carbs = 20;
 const editedTotals = calculateTotals([editedItem]);
 
-assert.equal(editedItem.sourceName, "Manual entry, nutrition lookup needed");
+assert.equal(editedItem.sourceName, "Manual entry, nutrition values needed");
 assert.equal(editedItem.needsUserReview, true);
-assert.equal(Math.round(editedTotals.calories), 0);
+assert.equal(editedItem.confidence, null);
+assert.equal(Math.round(editedTotals.calories), 120);
 assert.equal(Math.round(editedTotals.protein), 0);
+assert.equal(Math.round(editedTotals.carbs), 20);
+
+const manualItem = createManualAddedItem();
+assert.equal(manualItem.confidence, null);
+assert.equal(manualItem.base.calories, null);
+assert.equal(manualItem.manualEntry, true);
+
+const aiUnknownItem = createItemFromAiComponent({
+  foodName: "fried eggs",
+  quantity: 2,
+  unit: "pieces",
+  confidence: 0.95,
+  uncertaintyNote: "Detected by vision.",
+  evidence: "Two eggs visible."
+});
+assert.equal(aiUnknownItem.manualEntry, false);
+assert.equal(aiUnknownItem.base.editableNutrition, true);
+
+const matchedManualItem = createManualAddedItem();
+applyFoodNameChange(matchedManualItem, "Chicken breast", (name) => ingredients.find((item) => item.name === name));
+assert.equal(matchedManualItem.sourceName, "Manual entry, measurement not matched");
+assert.ok(matchedManualItem.confidence > 0.8);
+assert.equal(matchedManualItem.needsUserReview, true);
+matchedManualItem.unit = "grams";
+applyFoodNameChange(matchedManualItem, "Chicken breast", (name) => ingredients.find((item) => item.name === name));
+assert.equal(matchedManualItem.sourceName, "Ingredient nutrition estimate");
+assert.equal(matchedManualItem.needsUserReview, false);
+assert.equal(unitSupportedByReference(chicken, "grams"), true);
+assert.equal(unitSupportedByReference(chicken, "bowl"), false);
 
 const analysis = runDemoVisionAnalysis({
   fileName: "dal-rice-lunch.jpg",

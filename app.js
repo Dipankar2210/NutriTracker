@@ -29,6 +29,25 @@
     tbsp: 0.06
   };
 
+  const NUTRIENT_FIELDS = [
+    ["calories", "Calories", "kcal"],
+    ["protein", "Protein", "g"],
+    ["carbs", "Carbs", "g"],
+    ["fat", "Fat", "g"],
+    ["fiber", "Fiber", "g"],
+    ["sugar", "Sugar", "g"],
+    ["sodium", "Sodium", "mg"],
+    ["saturatedFat", "Saturated fat", "g"],
+    ["cholesterol", "Cholesterol", "mg"],
+    ["potassium", "Potassium", "mg"],
+    ["calcium", "Calcium", "mg"],
+    ["iron", "Iron", "mg"],
+    ["vitaminC", "Vitamin C", "mg"]
+  ];
+
+  const PER_100_UNITS = new Set(["gram", "grams", "g", "tbsp", "cup", "cups", "piece", "pieces"]);
+  const MEAL_FALLBACK_UNITS = new Set(["serving"]);
+
   const CITY_OPTIONS_BY_LOCATION = {
     India: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Kolkata", "Mumbai", "Pune"],
     "South Asia": ["Colombo", "Dhaka", "Islamabad", "Karachi", "Kathmandu", "Lahore"],
@@ -46,6 +65,7 @@
     references: [],
     ingredientReferences: [],
     items: [],
+    manualDraft: null,
     photoDataUrl: "",
     fileName: "",
     history: readHistory()
@@ -91,6 +111,11 @@
       "analysisNote",
       "addItemButton",
       "itemsBody",
+      "itemsFootnote",
+      "manualAddPanel",
+      "manualDraftBody",
+      "confirmAddItemButton",
+      "cancelAddItemButton",
       "generalNutrients",
       "carbNutrients",
       "lipidNutrients",
@@ -110,9 +135,12 @@
     els.userCity.addEventListener("change", analyzeCurrentPhoto);
     els.analyzeButton.addEventListener("click", analyzeCurrentPhoto);
     els.addItemButton.addEventListener("click", () => {
-      state.items.push(createItemFromReference(findReference("Grilled chicken salad"), 0.45, "Added manually. Confirm details."));
-      renderAll();
+      state.manualDraft = createManualAddedItem();
+      els.itemsFootnote.textContent = "Manual items can include foods that were not visible in the photo or were missed by AI.";
+      renderManualDraft();
     });
+    els.confirmAddItemButton.addEventListener("click", confirmManualDraft);
+    els.cancelAddItemButton.addEventListener("click", cancelManualDraft);
     els.saveMealButton.addEventListener("click", saveReviewedMeal);
     els.clearHistoryButton.addEventListener("click", clearHistory);
   }
@@ -362,9 +390,13 @@
       if (!response.ok) throw new Error(payload.error || "Image analysis failed.");
       state.items = payload.items.map(createItemFromAiComponent);
       els.analysisNote.textContent = `${payload.summary} Review every estimate before saving.`;
+      els.itemsFootnote.textContent = state.items.length
+        ? "Few items may be missing in the list which you can add manually."
+        : "No food items were detected. Few items may be missing in the list which you can add manually.";
     } catch (error) {
       state.items = [];
       els.analysisNote.textContent = `${error.message} No default food items were used. Please try again after analysis is available.`;
+      els.itemsFootnote.textContent = "No food items were detected. Few items may be missing in the list which you can add manually.";
     } finally {
       els.analyzeButton.disabled = false;
       els.analyzeButton.textContent = "Analyze photo";
@@ -426,21 +458,25 @@
     };
   }
 
+  function createManualAddedItem() {
+    return {
+      id: crypto.randomUUID(),
+      foodName: "",
+      quantity: 1,
+      unit: "serving",
+      confidence: null,
+      uncertaintyNote: "Type an item name. If it is not in foodtable.md, enter the nutrition values you know.",
+      needsUserReview: true,
+      sourceName: "Manual entry, waiting for foodtable match",
+      manualEntry: true,
+      base: createManualNutritionPlaceholder("")
+    };
+  }
+
   function createItemFromAiComponent(component) {
     const ingredient = findIngredientReference(component.foodName);
     const meal = findMealReference(component.foodName);
-    const base = ingredient || meal || {
-      name: component.foodName,
-      calories: 250,
-      protein: 8,
-      carbs: 30,
-      fat: 10,
-      fiber: 3,
-      sugar: 4,
-      sodium: 400,
-      notes: "No matching nutrition baseline found for this component.",
-      per100: true
-    };
+    const base = ingredient || meal || createManualNutritionPlaceholder(component.foodName);
     const confidence = clamp(number(component.confidence), 0.05, 0.95);
     return {
       id: crypto.randomUUID(),
@@ -451,6 +487,7 @@
       uncertaintyNote: `${component.uncertaintyNote} ${component.evidence ? `Basis: ${component.evidence}` : ""}`.trim(),
       needsUserReview: confidence < 0.72 || !ingredient,
       sourceName: ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
+      manualEntry: false,
       base
     };
   }
@@ -465,6 +502,7 @@
       uncertaintyNote: "Please identify this item manually.",
       needsUserReview: true,
       sourceName: "User review needed",
+      manualEntry: false,
       base: {
         name: "Unclear food item",
         calories: 250,
@@ -480,6 +518,7 @@
 
   function renderAll() {
     renderItems();
+    renderManualDraft();
     renderTotals();
   }
 
@@ -515,7 +554,80 @@
     });
   }
 
+  function renderManualDraft() {
+    if (!els.manualAddPanel || !els.manualDraftBody) return;
+    if (!state.manualDraft) {
+      els.manualAddPanel.hidden = true;
+      els.manualDraftBody.innerHTML = "";
+      return;
+    }
+
+    const item = state.manualDraft;
+    els.manualAddPanel.hidden = false;
+    els.manualDraftBody.innerHTML = `
+      <tr>
+        <td>
+          <input value="${escapeAttr(item.foodName)}" aria-label="Manual food name" data-draft-field="foodName" list="manualFoodSuggestions" />
+          <datalist id="manualFoodSuggestions">
+            ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
+          </datalist>
+        </td>
+        <td><input type="number" min="0" step="0.25" value="${item.quantity}" aria-label="Manual quantity" data-draft-field="quantity" /></td>
+        <td>
+          <select data-draft-field="unit" aria-label="Manual unit">
+            ${["serving", "cup", "cups", "piece", "pieces", "grams", "bowl", "plate", "tbsp"].map((unit) => `<option ${unit === item.unit ? "selected" : ""}>${unit}</option>`).join("")}
+          </select>
+        </td>
+        <td>${confidenceMarkup(item)}</td>
+        <td class="review-note">${item.needsUserReview ? "Confirm manually" : "Review optional"}<br>${escapeHtml(item.uncertaintyNote)}</td>
+      </tr>
+      ${itemNeedsManualNutrition(item) ? `
+        <tr class="manual-nutrition-row">
+          <td colspan="5">
+            ${manualNutritionPanelMarkup(item)}
+          </td>
+        </tr>
+      ` : ""}
+    `;
+    els.manualDraftBody.querySelectorAll("[data-draft-field]").forEach((input) => {
+      if (input.dataset.draftField === "foodName") {
+        input.addEventListener("input", (event) => {
+          if (state.manualDraft) state.manualDraft.foodName = event.target.value;
+        });
+        input.addEventListener("change", (event) => updateManualDraft("foodName", event.target.value));
+        return;
+      }
+      const eventName = input.dataset.draftField === "unit" ? "change" : "input";
+      input.addEventListener(eventName, (event) => updateManualDraft(event.target.dataset.draftField, event.target.value));
+    });
+    els.manualDraftBody.querySelectorAll("[data-nutrient]").forEach((input) => {
+      input.addEventListener("input", (event) => updateManualNutrient(item.id, event.target.dataset.nutrient, event.target.value));
+    });
+  }
+
+  function manualNutritionPanelMarkup(item) {
+    return `
+      <div class="manual-nutrition-panel">
+        <p>${escapeHtml(manualNutritionMessage(item))}</p>
+        <div class="manual-nutrition-grid">
+          ${NUTRIENT_FIELDS.map(([key, label, unit]) => `
+            <label>
+              ${label}
+              <span>
+                <input type="number" min="0" step="0.1" value="${nutrientInputValue(item.base[key])}" placeholder="Unknown" data-nutrient="${key}" />
+                <small>${unit}</small>
+              </span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }
+
   function confidenceMarkup(item) {
+    if (item.confidence === null || item.confidence === undefined) {
+      return "<span class=\"confidence manual\">Manual</span>";
+    }
     const confidence = item.confidence;
     const percent = Math.round(confidence * 100);
     const level = confidence < 0.5 ? "low" : confidence < 0.7 ? "medium" : "";
@@ -527,11 +639,59 @@
     const item = state.items.find((entry) => entry.id === id);
     if (!item) return;
     if (field === "quantity") item.quantity = Math.max(0, number(value));
-    if (field === "unit") item.unit = value;
+    if (field === "unit") {
+      item.unit = value;
+      refreshUnitSupport(item);
+    }
     if (field === "foodName") {
       applyFoodNameChange(item, value, findReference);
     }
+    if (field === "unit") {
+      renderAll();
+    } else {
+      renderTotals();
+    }
+  }
+
+  function updateManualNutrient(id, key, value) {
+    const item = state.manualDraft && state.manualDraft.id === id
+      ? state.manualDraft
+      : state.items.find((entry) => entry.id === id);
+    if (!item || !item.base) return;
+    item.base[key] = value === "" ? null : Math.max(0, number(value));
     renderTotals();
+  }
+
+  function updateManualDraft(field, value) {
+    const item = state.manualDraft;
+    if (!item) return;
+    if (field === "quantity") item.quantity = Math.max(0, number(value));
+    if (field === "unit") {
+      item.unit = value;
+      refreshUnitSupport(item);
+    }
+    if (field === "foodName") {
+      applyFoodNameChange(item, value, findReference);
+    }
+    renderManualDraft();
+  }
+
+  function confirmManualDraft() {
+    if (!state.manualDraft) return;
+    if (!state.manualDraft.foodName.trim()) {
+      els.itemsFootnote.textContent = "Enter a food name before adding the manual item.";
+      return;
+    }
+    state.items.push({ ...state.manualDraft, id: crypto.randomUUID() });
+    state.manualDraft = null;
+    els.itemsFootnote.textContent = "Manual item added to the list. Few items may still be missing and can be added manually.";
+    renderAll();
+  }
+
+  function cancelManualDraft() {
+    state.manualDraft = null;
+    els.itemsFootnote.textContent = "Few items may be missing in the list which you can add manually.";
+    renderManualDraft();
   }
 
   function removeItem(id) {
@@ -596,21 +756,21 @@
   function calculateTotals(items) {
     return items.reduce((totals, item) => {
       const factor = itemFactor(item);
-      totals.calories += item.base.calories * factor;
-      totals.protein += item.base.protein * factor;
-      totals.carbs += item.base.carbs * factor;
-      totals.fat += item.base.fat * factor;
-      totals.fiber += item.base.fiber * factor;
-      totals.sodium += item.base.sodium * factor;
+      totals.calories += nutrientValue(item.base, "calories") * factor;
+      totals.protein += nutrientValue(item.base, "protein") * factor;
+      totals.carbs += nutrientValue(item.base, "carbs") * factor;
+      totals.fat += nutrientValue(item.base, "fat") * factor;
+      totals.fiber += nutrientValue(item.base, "fiber") * factor;
+      totals.sodium += nutrientValue(item.base, "sodium") * factor;
       totals.sugar += estimateSugar(item.base) * factor;
       totals.addedSugar += estimateAddedSugar(item.base) * factor;
-      totals.saturatedFat += item.base.fat * 0.32 * factor;
-      totals.transFat += item.base.fat > 35 ? 0.2 * factor : 0;
-      totals.cholesterol += estimateCholesterol(item.base) * factor;
-      totals.potassium += (item.base.fiber * 95 + item.base.protein * 12) * factor;
-      totals.calcium += estimateCalcium(item.base) * factor;
-      totals.iron += (item.base.protein * 0.12 + item.base.fiber * 0.08) * factor;
-      totals.vitaminC += estimateVitaminC(item.base) * factor;
+      totals.saturatedFat += nutrientOrEstimate(item.base, "saturatedFat", nutrientValue(item.base, "fat") * 0.32) * factor;
+      totals.transFat += nutrientValue(item.base, "fat") > 35 ? 0.2 * factor : 0;
+      totals.cholesterol += nutrientOrEstimate(item.base, "cholesterol", estimateCholesterol(item.base)) * factor;
+      totals.potassium += nutrientOrEstimate(item.base, "potassium", nutrientValue(item.base, "fiber") * 95 + nutrientValue(item.base, "protein") * 12) * factor;
+      totals.calcium += nutrientOrEstimate(item.base, "calcium", estimateCalcium(item.base)) * factor;
+      totals.iron += nutrientOrEstimate(item.base, "iron", nutrientValue(item.base, "protein") * 0.12 + nutrientValue(item.base, "fiber") * 0.08) * factor;
+      totals.vitaminC += nutrientOrEstimate(item.base, "vitaminC", estimateVitaminC(item.base)) * factor;
       return totals;
     }, emptyTotals());
   }
@@ -636,6 +796,10 @@
   }
 
   function itemFactor(item) {
+    if (!item.base) return 0;
+    if (item.base.editableNutrition || item.unsupportedUnit) {
+      return 1;
+    }
     if (item.base && item.base.per100) {
       return unitToGrams(item.unit, item.quantity, item.foodName) / 100;
     }
@@ -661,26 +825,41 @@
     return 100;
   }
 
+  function nutrientValue(base, key) {
+    if (!base || base[key] === null || base[key] === undefined || base[key] === "") return 0;
+    return number(base[key]);
+  }
+
+  function nutrientOrEstimate(base, key, estimate) {
+    if (!base || base[key] === null || base[key] === undefined || base[key] === "") return estimate;
+    return number(base[key]);
+  }
+
   function estimateSugar(base) {
-    if (base.sugar !== undefined) return base.sugar;
+    if (!base) return 0;
+    if (base.sugar !== undefined && base.sugar !== null && base.sugar !== "") return number(base.sugar);
     const text = `${base.name} ${base.staples || ""} ${base.notes || ""}`.toLowerCase();
-    if (/fruit|syrup|sweet|pancake|bbq|chutney/.test(text)) return Math.min(42, base.carbs * 0.25);
-    return Math.min(18, base.carbs * 0.1);
+    if (/fruit|syrup|sweet|pancake|bbq|chutney/.test(text)) return Math.min(42, nutrientValue(base, "carbs") * 0.25);
+    return Math.min(18, nutrientValue(base, "carbs") * 0.1);
   }
 
   function estimateAddedSugar(base) {
+    if (!base) return 0;
     return /syrup|bbq|sweet|sauce|chutney/i.test(`${base.name} ${base.notes || ""}`) ? 8 : 0;
   }
 
   function estimateCholesterol(base) {
+    if (!base) return 0;
     return /chicken|beef|egg|fish|pork|mutton|lamb|meat|turkey/i.test(`${base.name} ${base.staples || ""}`) ? 75 : 8;
   }
 
   function estimateCalcium(base) {
+    if (!base) return 0;
     return /paneer|cheese|yogurt|curd|milk|halloumi/i.test(`${base.name} ${base.staples || ""}`) ? 280 : 80;
   }
 
   function estimateVitaminC(base) {
+    if (!base) return 0;
     return /salad|vegetable|tomato|pepper|fruit|salsa|lemon|greens/i.test(`${base.name} ${base.staples || ""} ${base.notes || ""}`) ? 45 : 12;
   }
 
@@ -690,13 +869,8 @@
       return;
     }
     const needsReview = state.items.some((item) => item.needsUserReview && item.foodName.toLowerCase().includes("unclear"));
-    const missingNutrition = state.items.some((item) => item.sourceName === "Manual entry, nutrition lookup needed");
     if (needsReview) {
       els.saveMessage.textContent = "Update unclear items before saving.";
-      return;
-    }
-    if (missingNutrition) {
-      els.saveMessage.textContent = "Choose a suggested food match before saving unsupported items.";
       return;
     }
     const totals = calculateTotals(state.items);
@@ -712,7 +886,10 @@
         quantity: item.quantity,
         unit: item.unit,
         confidence: item.confidence,
-        sourceName: item.sourceName
+        sourceName: item.sourceName,
+        manualEntry: item.manualEntry || false,
+        base: itemNeedsManualNutrition(item) ? item.base : null,
+        unsupportedUnit: item.unsupportedUnit || false
       })),
       totals,
       savedAt: new Date().toISOString()
@@ -748,6 +925,7 @@
     if (!meal) return;
     state.items = meal.items.map((saved) => {
       const ref = findReference(saved.foodName) || fallbackReferences()[0];
+      const base = saved.base || ref;
       return {
         id: crypto.randomUUID(),
         foodName: saved.foodName,
@@ -755,9 +933,11 @@
         unit: saved.unit,
         confidence: saved.confidence,
         uncertaintyNote: "Loaded from reviewed history.",
-        needsUserReview: false,
+        needsUserReview: Boolean(saved.unsupportedUnit || (base && base.editableNutrition)),
         sourceName: saved.sourceName,
-        base: ref
+        manualEntry: saved.manualEntry || false,
+        unsupportedUnit: saved.unsupportedUnit || false,
+        base
       };
     });
     els.mealType.value = meal.mealType;
@@ -801,34 +981,114 @@
     const match = lookup(value);
     if (match) {
       item.base = match;
+      item.referenceBase = match;
+      item.manualEntry = item.manualEntry || false;
       item.sourceName = match.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
-      item.confidence = Math.max(item.confidence, 0.72);
-      item.needsUserReview = false;
-      item.uncertaintyNote = "Matched typed food name to nutrition data.";
+      item.confidence = confidenceFromReference(match, value);
+      refreshUnitSupport(item);
+      item.needsUserReview = item.unsupportedUnit;
+      item.uncertaintyNote = item.unsupportedUnit
+        ? "Food matched foodtable.md, but the selected measurement is not supported for this reference. Enter nutrient values for this quantity."
+        : "Matched typed food name to foodtable.md nutrition data.";
       return item;
     }
 
     item.base = createManualNutritionPlaceholder(value);
-    item.sourceName = "Manual entry, nutrition lookup needed";
-    item.confidence = 0.2;
+    item.sourceName = "Manual entry, nutrition values needed";
+    item.confidence = null;
     item.needsUserReview = true;
-    item.uncertaintyNote = "No nutrition reference matched this food name. Choose a suggestion or add nutrition data before saving.";
+    item.unsupportedUnit = false;
+    item.referenceBase = null;
+    item.manualEntry = item.manualEntry || false;
+    item.uncertaintyNote = "This item is not in foodtable.md. Enter the nutrient values you know; unknown values can stay blank.";
     return item;
   }
 
   function createManualNutritionPlaceholder(name) {
-    return {
+    const base = {
       name,
-      calories: 0,
-      protein: 0,
-      carbs: 0,
-      fat: 0,
-      fiber: 0,
-      sugar: 0,
-      sodium: 0,
-      notes: "Nutrition not calculated until this item matches a reference.",
-      per100: true
+      notes: "User-entered nutrition for an item missing from foodtable.md.",
+      editableNutrition: true
     };
+    NUTRIENT_FIELDS.forEach(([key]) => {
+      base[key] = null;
+    });
+    return base;
+  }
+
+  function refreshUnitSupport(item) {
+    const reference = item.referenceBase || (item.base && !item.base.editableNutrition ? item.base : null);
+    if (!reference) {
+      item.unsupportedUnit = false;
+      return;
+    }
+    item.referenceBase = reference;
+    item.unsupportedUnit = !unitSupportedByReference(reference, item.unit);
+    if (item.unsupportedUnit) {
+      item.base = createManualNutritionPlaceholder(item.foodName);
+      item.sourceName = "Manual entry, measurement not matched";
+      return;
+    }
+    item.base = reference;
+    item.sourceName = reference.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
+  }
+
+  function unitSupportedByReference(base, unit) {
+    const normalized = normalizeUnit(unit);
+    if (!normalized) return false;
+    if (base.per100) return PER_100_UNITS.has(normalized);
+    if (MEAL_FALLBACK_UNITS.has(normalized)) return true;
+    return unitsFromAverageQuantity(base.avgQty).has(normalized);
+  }
+
+  function unitsFromAverageQuantity(avgQty) {
+    const normalized = String(avgQty || "").toLowerCase();
+    const units = new Set();
+    if (/\bg\b|gram|grams/.test(normalized)) units.add("grams");
+    if (/\bcups?\b/.test(normalized)) {
+      units.add("cup");
+      units.add("cups");
+    }
+    if (/\bpieces?\b|idli|roti|rotis|paratha|parathas|taco|tacos|slice|slices/.test(normalized)) {
+      units.add("piece");
+      units.add("pieces");
+    }
+    if (/\bbowl\b/.test(normalized)) units.add("bowl");
+    if (/\bplate\b/.test(normalized)) units.add("plate");
+    if (/\btbsp\b|tablespoon/.test(normalized)) units.add("tbsp");
+    return units;
+  }
+
+  function normalizeUnit(unit) {
+    const normalized = String(unit || "").toLowerCase().trim();
+    if (normalized === "gram" || normalized === "g") return "grams";
+    return normalized;
+  }
+
+  function confidenceFromReference(ref, value) {
+    if (ref.per100) {
+      const text = String(ref.dataConfidence || "").toLowerCase();
+      if (text.includes("high")) return 0.88;
+      if (text.includes("medium")) return 0.72;
+      if (text.includes("low")) return 0.55;
+      return 0.7;
+    }
+    return ref.name.toLowerCase() === String(value || "").toLowerCase().trim() ? 0.78 : 0.68;
+  }
+
+  function itemNeedsManualNutrition(item) {
+    return Boolean(item.manualEntry && item.base && (item.base.editableNutrition || item.unsupportedUnit));
+  }
+
+  function manualNutritionMessage(item) {
+    if (item.unsupportedUnit) {
+      return "Measurement is not matched for this foodtable.md item. Enter nutrition for the quantity shown above; unknown fields can stay blank.";
+    }
+    return "This item is not in foodtable.md. Enter nutrient values you know; unknown fields can stay blank.";
+  }
+
+  function nutrientInputValue(value) {
+    return value === null || value === undefined || value === "" ? "" : String(value);
   }
 
   function findMealReference(name) {
@@ -998,11 +1258,13 @@
       fallbackReferences,
       fallbackIngredientReferences,
       createItemFromReference,
+      createManualAddedItem,
       createItemFromAiComponent,
       applyFoodNameChange,
       normalizeInternetLocation,
       citySuggestionsForLocation,
       createManualNutritionPlaceholder,
+      unitSupportedByReference,
       createUnclearItem,
       runDemoVisionAnalysis
     };
