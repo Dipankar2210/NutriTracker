@@ -25,6 +25,34 @@ Use it as a decision-support reference when AI analyzes an uploaded meal photo. 
 5. Recalculate nutrition totals after every user edit.
 6. Save the reviewed meal by user, date, time, and meal type.
 
+## Portion Size Reference
+
+Use grams as the calculation base whenever possible. User-friendly units such as pieces, slices, cups, bowls, and servings should be converted into estimated grams before nutrition totals are calculated.
+
+For variable-size foods, use the portion presets below as starting estimates. If AI or the user cannot confirm the size, default to `medium`, mark the value as an estimate, and allow the user to enter custom grams.
+
+Formula:
+
+```text
+total_grams = quantity * grams_per_unit
+nutrient_total = nutrient_per_100g * total_grams / 100
+```
+
+| Food name | Unit | Small grams | Medium grams | Large grams | Default size | Nutrition basis | Notes |
+|---|---|---:|---:|---:|---|---|---|
+| Roti | piece | 25 | 35 | 50 | medium | per_100g | Size and oil/ghee can change calories |
+| Chapati | piece | 25 | 35 | 50 | medium | per_100g | Similar to roti unless recipe differs |
+| Paratha | piece | 60 | 85 | 120 | medium | per_100g | Stuffing and oil/ghee are major variables |
+| Naan | piece | 70 | 100 | 140 | medium | per_100g | Butter naan should be treated separately when known |
+| Pizza slice | slice | 80 | 110 | 150 | medium | per_100g | Depends on crust thickness and toppings |
+| Dosa | piece | 80 | 120 | 170 | medium | per_100g | Oil and filling can change totals |
+| Idli | piece | 35 | 50 | 70 | medium | per_100g | Usually lower-fat unless oil/ghee is added |
+| Bread slice | slice | 25 | 35 | 45 | medium | per_100g | Brand and thickness vary |
+| Burger bun | piece | 45 | 65 | 85 | medium | per_100g | Use only for bun portion if item is separated |
+| Tortilla | piece | 35 | 50 | 70 | medium | per_100g | Corn and wheat tortillas differ |
+
+When a food has reliable per-100g nutrition data, prefer the per-100g calculation over fixed per-piece calories. Fixed meal-table rows remain useful for complete mixed meals, but individual variable-size items should use grams when practical.
+
 ## Auto-Update Rule
 
 When a registered user uploads a meal that is not represented in this file:

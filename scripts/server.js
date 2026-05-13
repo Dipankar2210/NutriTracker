@@ -1,6 +1,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const mealsDb = require("../backend/db/database");
 
 const root = path.resolve(__dirname, "..");
 const port = Number(process.env.PORT || 3000);
@@ -22,6 +23,16 @@ const server = http.createServer((request, response) => {
 
   if (request.method === "POST" && url.pathname === "/api/analyze") {
     handleAnalyze(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/meals" || url.pathname.startsWith("/api/meals/")) {
+    handleMeals(request, response, url);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/food-reference") {
+    handleFoodReference(response);
     return;
   }
 
@@ -88,8 +99,9 @@ function loadEnv(envPath) {
 function isBlockedStaticPath(relativePath) {
   const parts = relativePath.split(path.sep);
   return parts.some((part) => part.startsWith("."))
+    || parts.includes("data")
     || /(^|[/\\])(?:package-lock\.json|npm-debug\.log|yarn-error\.log)$/i.test(relativePath)
-    || /\.(?:key|pem|crt|p12|pfx)$/i.test(relativePath);
+    || /\.(?:key|pem|crt|p12|pfx|sqlite|sqlite3|db)$/i.test(relativePath);
 }
 
 function readJsonBody(request, maxBytes = 9 * 1024 * 1024) {
@@ -139,6 +151,82 @@ async function handleAnalyze(request, response) {
   } catch (error) {
     sendJson(response, 500, { error: error.message || "Unable to analyze image." });
   }
+}
+
+async function handleMeals(request, response, url) {
+  try {
+    const mealId = decodeURIComponent(url.pathname.replace(/^\/api\/meals\/?/, ""));
+
+    if (request.method === "GET" && url.pathname === "/api/meals") {
+      sendJson(response, 200, mealsDb.listMeals({
+        mealType: url.searchParams.get("mealType") || "",
+        start: url.searchParams.get("start") || "",
+        end: url.searchParams.get("end") || ""
+      }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/meals") {
+      const body = await readJsonBody(request);
+      const meal = mealsDb.createMeal(body);
+      sendJson(response, 201, meal);
+      return;
+    }
+
+    if (!mealId) {
+      sendJson(response, 404, { error: "Meal not found." });
+      return;
+    }
+
+    if (request.method === "GET") {
+      const meal = mealsDb.getMeal(mealId);
+      if (!meal) {
+        sendJson(response, 404, { error: "Meal not found." });
+        return;
+      }
+      sendJson(response, 200, meal);
+      return;
+    }
+
+    if (request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const meal = mealsDb.updateMeal(mealId, body);
+      if (!meal) {
+        sendJson(response, 404, { error: "Meal not found." });
+        return;
+      }
+      sendJson(response, 200, meal);
+      return;
+    }
+
+    if (request.method === "DELETE") {
+      const deleted = mealsDb.deleteMeal(mealId);
+      if (!deleted) {
+        sendJson(response, 404, { error: "Meal not found." });
+        return;
+      }
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    sendJson(response, 405, { error: "Method not allowed." });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message || "Unable to process meal request." });
+  }
+}
+
+function handleFoodReference(response) {
+  const foodtablePath = path.join(root, "foodtable.md");
+  if (!fs.existsSync(foodtablePath)) {
+    sendJson(response, 404, { error: "foodtable.md unavailable." });
+    return;
+  }
+  const markdown = fs.readFileSync(foodtablePath, "utf8");
+  sendJson(response, 200, {
+    meals: parseFoodTableRows(markdown),
+    ingredients: parseIngredientRows(markdown),
+    portionSizes: parsePortionRows(markdown)
+  });
 }
 
 async function handleReverseGeocode(url, response) {
@@ -211,6 +299,72 @@ function buildFoodReferencePrompt() {
     "Known individual ingredients:",
     ingredientNames.join(", ")
   ].join("\n");
+}
+
+function parseFoodTableRows(markdown) {
+  return markdown
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*\d+\s*\|/.test(line))
+    .map((line) => line.split("|").map((cell) => cell.trim()))
+    .map((cells) => ({
+      id: Number(cells[1]),
+      region: cells[2],
+      name: cells[3],
+      staples: cells[4],
+      averageQuantity: cells[5],
+      dietConfiguration: cells[6],
+      calories: Number(cells[7]) || 0,
+      protein: Number(cells[8]) || 0,
+      carbs: Number(cells[9]) || 0,
+      fat: Number(cells[10]) || 0,
+      fiber: Number(cells[11]) || 0,
+      sodium: Number(cells[12]) || 0,
+      notes: cells[13] || ""
+    }))
+    .filter((item) => item.name);
+}
+
+function parseIngredientRows(markdown) {
+  const inSection = markdown.split("## Ingredient Nutrition Reference Baseline")[1] || "";
+  return inSection
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*\d/.test(line))
+    .map((line) => line.split("|").map((cell) => cell.trim()))
+    .map((cells) => ({
+      name: cells[1],
+      category: cells[2],
+      commonState: cells[3],
+      calories: Number(cells[4]) || 0,
+      protein: Number(cells[5]) || 0,
+      carbs: Number(cells[6]) || 0,
+      fat: Number(cells[7]) || 0,
+      fiber: Number(cells[8]) || 0,
+      sugar: Number(cells[9]) || 0,
+      sodium: Number(cells[10]) || 0,
+      dataConfidence: cells[11],
+      notes: cells[12] || ""
+    }))
+    .filter((item) => item.name);
+}
+
+function parsePortionRows(markdown) {
+  const section = markdown.split("## Portion Size Reference")[1] || "";
+  const beforeNextSection = section.split(/\n##\s+/)[0] || "";
+  return beforeNextSection
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*\d/.test(line))
+    .map((line) => line.split("|").map((cell) => cell.trim()))
+    .map((cells) => ({
+      foodName: cells[1],
+      unit: cells[2],
+      smallGrams: Number(cells[3]) || 0,
+      mediumGrams: Number(cells[4]) || 0,
+      largeGrams: Number(cells[5]) || 0,
+      defaultSize: cells[6] || "medium",
+      nutritionBasis: cells[7] || "per_100g",
+      notes: cells[8] || ""
+    }))
+    .filter((item) => item.foodName && item.mediumGrams);
 }
 
 async function callOpenAIVision({ imageDataUrl, location, foodReference }) {

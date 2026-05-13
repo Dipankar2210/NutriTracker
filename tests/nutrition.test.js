@@ -4,6 +4,7 @@ const path = require("node:path");
 const {
   parseFoodTable,
   parseIngredientNutrition,
+  parsePortionSizeReference,
   calculateTotals,
   createItemFromReference,
   createManualAddedItem,
@@ -18,9 +19,11 @@ const {
 const markdown = fs.readFileSync(path.resolve(__dirname, "../foodtable.md"), "utf8");
 const references = parseFoodTable(markdown);
 const ingredients = parseIngredientNutrition(markdown);
+const portionSizes = parsePortionSizeReference(markdown);
 
 assert.ok(references.length >= 100, "foodtable.md should parse into common meal references");
 assert.ok(ingredients.length >= 150, "foodtable.md should parse into ingredient nutrition references");
+assert.ok(portionSizes.length >= 8, "foodtable.md should parse variable portion-size references");
 
 const dalRice = references.find((item) => item.name === "Dal rice");
 assert.ok(dalRice, "Dal rice reference should exist");
@@ -50,6 +53,29 @@ const ingredientTotals = calculateTotals([
 
 assert.equal(Math.round(ingredientTotals.calories), 330);
 assert.equal(Math.round(ingredientTotals.protein), 62);
+
+const roti = ingredients.find((item) => item.name === "Roti");
+const rotiPortion = portionSizes.find((item) => item.foodName === "Roti");
+assert.ok(roti, "Roti ingredient reference should exist");
+assert.equal(rotiPortion.mediumGrams, 35);
+
+const rotiTotals = calculateTotals([
+  {
+    id: "roti-test",
+    foodName: "Roti",
+    quantity: 2,
+    unit: "pieces",
+    portionSize: "medium",
+    gramsPerUnit: rotiPortion.mediumGrams,
+    totalGrams: 2 * rotiPortion.mediumGrams,
+    nutritionBasis: "per_100g",
+    confidence: 0.8,
+    base: roti
+  }
+]);
+
+assert.equal(Math.round(rotiTotals.calories), 208);
+assert.equal(Math.round(rotiTotals.carbs), 32);
 
 const editedItem = createItemFromReference(dalRice, 0.9, "test");
 applyFoodNameChange(editedItem, "Unsupported mystery food", () => null);

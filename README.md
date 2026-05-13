@@ -55,6 +55,28 @@ The AI result should return structured data such as:
 
 The app should not silently trust the AI result. The user should always be able to review, correct, add, or remove items before the meal is saved.
 
+## Portion Size Calculation
+
+For variable-size foods, the app should calculate nutrition from grams when possible.
+
+Examples include roti, chapati, paratha, naan, pizza slices, dosa, idli, bread slices, and similar foods where one piece can be small, medium, or large.
+
+Recommended MVP rule:
+
+```text
+total_grams = quantity * grams_per_unit
+nutrient_total = nutrient_per_100g * total_grams / 100
+```
+
+The UI can still show friendly inputs:
+
+- Quantity: `2`
+- Unit: `pieces`
+- Size: `medium`
+- Estimated weight: `70g`
+
+The backend should use the gram estimate for calculation. If the size is unclear, default to medium, label it as an estimate, and let the user choose small, medium, large, or custom grams.
+
 ## Food Reference Table
 
 The project includes [foodtable.md](foodtable.md), which should be used as the main reference when the app diagnoses an uploaded meal image.
@@ -192,6 +214,10 @@ This app should not provide medical advice. Users with medical conditions should
 - foodName
 - quantity
 - unit
+- portionSize
+- gramsPerUnit
+- totalGrams
+- nutritionBasis
 - confidenceScore
 - aiDetected
 - needsUserReview

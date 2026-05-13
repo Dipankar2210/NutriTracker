@@ -40,6 +40,8 @@
 - Treat `foodtable.md` as the app's canonical starting reference for common meals, geography, staple ingredients, average quantities, diet configuration, and estimated nutrition metrics.
 - Match AI-detected foods against `foodtable.md` using the detected food name, staple ingredients, user location, and visible plate composition.
 - If `foodtable.md` contains a likely match, use it only as a starting estimate and still require user review.
+- For variable-size foods such as roti, chapati, paratha, naan, pizza, dosa, idli, and bread, calculate nutrition from grams when possible. Use pieces, slices, cups, bowls, and servings as user-friendly inputs, then convert them to grams before calculating totals.
+- If variable-size food size is unclear, default to medium, show it as an estimate, and let the user choose small, medium, large, or custom grams.
 - If a detected meal or food item is missing from `foodtable.md`, create a candidate entry only after the registered user reviews and saves the meal.
 - Only registered users who have provided location details may contribute new candidate entries to `foodtable.md`.
 - Anonymous users and users without location details must not update `foodtable.md`.
@@ -79,10 +81,10 @@
 - When a registered user saves a reviewed meal that is not represented in `foodtable.md`, queue a new food-table candidate entry with the user's provided location.
 
 ## Commands
-- **Install:** TBD after stack is selected
-- **Dev:** TBD after stack is selected
-- **Build:** TBD after stack is selected
-- **Test:** TBD after stack is selected
+- **Install:** `npm install`
+- **Dev:** `npm run dev`
+- **Build:** `npm run build`
+- **Test:** `npm test`
 - **Lint:** TBD after stack is selected
 
 ## Do
@@ -93,6 +95,7 @@
 - Run dev/build after changes to verify nothing broke when commands exist.
 - Ask clarifying questions before making risky product or technical assumptions.
 - Treat nutrition values as estimates unless verified by a trusted source.
+- Prefer per-100g nutrition calculations for variable-size foods when reliable data exists.
 - Keep user health and privacy in mind when handling meal photos and nutrition data.
 - Build the upload result screen around AI detection, manual correction, and date-wise meal saving.
 - Check `foodtable.md` before adding new food or meal reference data.

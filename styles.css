@@ -37,6 +37,7 @@ button {
 }
 
 .app-shell {
+  width: 100%;
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px;
@@ -161,7 +162,7 @@ h3 {
 
 .upload-panel {
   display: grid;
-  grid-template-columns: 1fr minmax(240px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
   gap: 20px;
   align-items: center;
   padding: 24px;
@@ -210,13 +211,14 @@ h3 {
 
 .workspace {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
   gap: 18px;
 }
 
 .meal-card,
 .dashboard,
 .history-panel {
+  min-width: 0;
   padding: 18px;
 }
 
@@ -346,14 +348,36 @@ select {
 
 .section-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
 }
 
+.section-head > div {
+  min-width: 0;
+}
+
+.section-head h2 {
+  line-height: 1.2;
+}
+
+.section-head p {
+  max-width: 720px;
+  margin-bottom: 0;
+  line-height: 1.35;
+}
+
+.add-item-button {
+  flex: 0 0 auto;
+  min-width: 96px;
+  white-space: nowrap;
+  text-align: center;
+}
+
 .items-table-wrap {
-  overflow-x: auto;
+  max-width: 100%;
+  overflow-x: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -361,7 +385,24 @@ select {
 .items-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.items-table .food-col {
+  width: 46%;
+}
+
+.items-table .amount-col {
+  width: 25%;
+}
+
+.items-table .portion-col {
+  width: 20%;
+}
+
+.items-table .action-col {
+  width: 9%;
 }
 
 .items-table th,
@@ -370,12 +411,15 @@ select {
   padding: 10px;
   text-align: left;
   vertical-align: middle;
+  overflow: hidden;
 }
 
 .items-table th {
   background: #f2f5f1;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
 }
 
 .items-table tr:last-child td {
@@ -384,8 +428,133 @@ select {
 
 .items-table input,
 .items-table select {
-  min-width: 96px;
+  min-width: 0;
   padding: 8px;
+  font-size: 14px;
+}
+
+.items-table td:first-child input {
+  min-width: 0;
+}
+
+.food-review-cell {
+  display: grid;
+  gap: 7px;
+}
+
+.food-review-cell > input {
+  font-weight: 500;
+}
+
+.item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.amount-control {
+  display: grid;
+  grid-template-columns: minmax(58px, 0.8fr) minmax(82px, 1.2fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.portion-pill {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #9fd0b4;
+  border-radius: 8px;
+  background: #edf8f1;
+  color: #16653d;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.portion-pill:hover,
+.portion-pill:focus-visible {
+  border-color: var(--green);
+  background: #ddf1e6;
+  outline: none;
+}
+
+.portion-editor-row td {
+  background: #fbfcfa;
+}
+
+.portion-editor {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.portion-editor-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.portion-editor-head span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.portion-reference {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.portion-size-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.portion-size-buttons button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
+.portion-size-buttons button.active {
+  border-color: var(--green);
+  background: #eaf7ef;
+  color: #187347;
+}
+
+.custom-mode {
+  max-width: 240px;
+}
+
+.portion-custom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.muted-cell {
+  color: var(--muted);
+}
+
+.gram-estimate {
+  display: inline-block;
+  min-width: 64px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.gram-estimate.estimated {
+  color: var(--muted);
 }
 
 .confidence {
@@ -429,8 +598,22 @@ select {
 }
 
 .review-note {
+  margin: 0;
   color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.items-table .danger {
+  width: 100%;
+  padding: 8px 6px;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .items-footnote {
@@ -623,7 +806,8 @@ select {
   .quick-guide,
   .summary-grid,
   .details-grid,
-  .manual-nutrition-grid {
+  .manual-nutrition-grid,
+  .portion-custom-grid {
     grid-template-columns: 1fr;
   }
 

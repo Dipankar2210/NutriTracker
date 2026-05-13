@@ -5,7 +5,10 @@
   "description": "Meal nutrition tracker MVP",
   "scripts": {
     "dev": "node scripts/server.js",
-    "build": "node tests/nutrition.test.js",
-    "test": "node tests/nutrition.test.js"
+    "build": "node tests/nutrition.test.js && node tests/meals-db.test.js",
+    "test": "node tests/nutrition.test.js && node tests/meals-db.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
   }
 }

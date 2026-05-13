@@ -29,6 +29,12 @@
     tbsp: 0.06
   };
 
+  const DISPLAY_GRAMS_BY_UNIT = {
+    serving: 150,
+    bowl: 200,
+    plate: 300
+  };
+
   const NUTRIENT_FIELDS = [
     ["calories", "Calories", "kcal"],
     ["protein", "Protein", "g"],
@@ -46,6 +52,7 @@
   ];
 
   const PER_100_UNITS = new Set(["gram", "grams", "g", "tbsp", "cup", "cups", "piece", "pieces"]);
+  const PORTION_UNITS = new Set(["piece", "pieces", "slice", "slices"]);
   const MEAL_FALLBACK_UNITS = new Set(["serving"]);
 
   const CITY_OPTIONS_BY_LOCATION = {
@@ -64,11 +71,14 @@
   const state = {
     references: [],
     ingredientReferences: [],
+    portionReferences: [],
     items: [],
     manualDraft: null,
+    activePortionEditorId: null,
     photoDataUrl: "",
     fileName: "",
-    history: readHistory()
+    history: [],
+    currentMealId: null
   };
 
   const els = {};
@@ -83,6 +93,7 @@
     setDetectedLocation();
     bindEvents();
     renderHistory();
+    loadMealHistory();
     loadFoodReference();
   }
 
@@ -264,11 +275,13 @@
       const markdown = await response.text();
       state.references = parseFoodTable(markdown);
       state.ingredientReferences = parseIngredientNutrition(markdown);
+      state.portionReferences = parsePortionSizeReference(markdown);
       els.referenceStatus.textContent = "Nutrition data ready";
       renderSuggestionLists();
     } catch (error) {
       state.references = fallbackReferences();
       state.ingredientReferences = fallbackIngredientReferences();
+      state.portionReferences = fallbackPortionReferences();
       els.referenceStatus.textContent = "Basic nutrition data ready";
       renderSuggestionLists();
     }
@@ -353,6 +366,26 @@
       .filter((item) => item.name && item.calories);
   }
 
+  function parsePortionSizeReference(markdown) {
+    const section = markdown.split("## Portion Size Reference")[1] || "";
+    const beforeNextSection = section.split(/\n##\s+/)[0] || "";
+    return beforeNextSection
+      .split(/\r?\n/)
+      .filter((line) => /^\|\s*[^|]+\s*\|\s*[^|]+\s*\|\s*\d/.test(line))
+      .map((line) => line.split("|").map((cell) => cell.trim()))
+      .map((cells) => ({
+        foodName: cells[1],
+        unit: normalizeUnit(cells[2]),
+        smallGrams: number(cells[3]),
+        mediumGrams: number(cells[4]),
+        largeGrams: number(cells[5]),
+        defaultSize: cells[6] || "medium",
+        nutritionBasis: cells[7] || "per_100g",
+        notes: cells[8] || ""
+      }))
+      .filter((item) => item.foodName && item.mediumGrams);
+  }
+
   function handlePhotoUpload(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
@@ -360,6 +393,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       state.photoDataUrl = reader.result;
+      state.currentMealId = null;
       els.mealPreview.src = state.photoDataUrl;
       els.workspace.hidden = false;
       els.analysisNote.textContent = "Photo ready. Run analysis, then review every item.";
@@ -388,6 +422,7 @@
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Image analysis failed.");
+      state.currentMealId = null;
       state.items = payload.items.map(createItemFromAiComponent);
       els.analysisNote.textContent = `${payload.summary} Review every estimate before saving.`;
       els.itemsFootnote.textContent = state.items.length
@@ -459,7 +494,7 @@
   }
 
   function createManualAddedItem() {
-    return {
+    return applyPortionDefaults({
       id: crypto.randomUUID(),
       foodName: "",
       quantity: 1,
@@ -470,7 +505,7 @@
       sourceName: "Manual entry, waiting for foodtable match",
       manualEntry: true,
       base: createManualNutritionPlaceholder("")
-    };
+    });
   }
 
   function createItemFromAiComponent(component) {
@@ -478,7 +513,7 @@
     const meal = findMealReference(component.foodName);
     const base = ingredient || meal || createManualNutritionPlaceholder(component.foodName);
     const confidence = clamp(number(component.confidence), 0.05, 0.95);
-    return {
+    return applyPortionDefaults({
       id: crypto.randomUUID(),
       foodName: component.foodName,
       quantity: number(component.quantity) || 1,
@@ -489,11 +524,11 @@
       sourceName: ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
       manualEntry: false,
       base
-    };
+    });
   }
 
   function createUnclearItem() {
-    return {
+    return applyPortionDefaults({
       id: crypto.randomUUID(),
       foodName: "Unclear food item",
       quantity: 1,
@@ -513,7 +548,7 @@
         sodium: 400,
         notes: "Placeholder estimate until reviewed."
       }
-    };
+    });
   }
 
   function renderAll() {
@@ -527,30 +562,46 @@
     state.items.forEach((item) => {
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td>
+        <td class="food-review-cell">
           <input value="${escapeAttr(item.foodName)}" aria-label="Food name" data-field="foodName" list="foodSuggestions-${item.id}" />
           <datalist id="foodSuggestions-${item.id}">
             ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
           </datalist>
+          <div class="item-meta">
+            ${confidenceMarkup(item)}
+            <span>${item.needsUserReview ? "Confirm manually" : "Review optional"}</span>
+          </div>
+          <p class="review-note">${escapeHtml(item.uncertaintyNote)}</p>
         </td>
-        <td><input type="number" min="0" step="0.25" value="${item.quantity}" aria-label="Quantity" data-field="quantity" /></td>
-        <td>
-          <select data-field="unit" aria-label="Unit">
-            ${["serving", "cup", "cups", "piece", "pieces", "grams", "bowl", "plate", "tbsp"].map((unit) => `<option ${unit === item.unit ? "selected" : ""}>${unit}</option>`).join("")}
-          </select>
-        </td>
-        <td>${confidenceMarkup(item)}</td>
-        <td class="review-note">${item.needsUserReview ? "Confirm manually" : "Review optional"}<br>${escapeHtml(item.uncertaintyNote)}</td>
+        <td>${amountMarkup(item, "data-field")}</td>
+        <td>${portionSummaryMarkup(item, "item")}</td>
         <td><button class="danger" data-remove="${item.id}">Remove</button></td>
       `;
       row.querySelectorAll("[data-field]").forEach((input) => {
         input.addEventListener("input", (event) => updateItem(item.id, event.target.dataset.field, event.target.value));
+        if (["quantity", "totalGrams", "diameterValue"].includes(input.dataset.field)) {
+          input.addEventListener("change", renderAll);
+          input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              renderAll();
+            }
+          });
+        }
         if (input.dataset.field === "foodName") {
           input.addEventListener("change", renderAll);
         }
       });
+      row.querySelector("[data-portion-toggle]")?.addEventListener("click", () => togglePortionEditor(item.id));
       row.querySelector("[data-remove]").addEventListener("click", () => removeItem(item.id));
       els.itemsBody.appendChild(row);
+      if (state.activePortionEditorId === item.id && itemHasPortionSizes(item)) {
+        const editorRow = document.createElement("tr");
+        editorRow.className = "portion-editor-row";
+        editorRow.innerHTML = `<td colspan="4">${portionEditorMarkup(item, "data-field")}</td>`;
+        bindPortionEditor(editorRow, item.id, updateItem);
+        els.itemsBody.appendChild(editorRow);
+      }
     });
   }
 
@@ -566,24 +617,28 @@
     els.manualAddPanel.hidden = false;
     els.manualDraftBody.innerHTML = `
       <tr>
-        <td>
+        <td class="food-review-cell">
           <input value="${escapeAttr(item.foodName)}" aria-label="Manual food name" data-draft-field="foodName" list="manualFoodSuggestions" />
           <datalist id="manualFoodSuggestions">
             ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
           </datalist>
+          <div class="item-meta">
+            ${confidenceMarkup(item)}
+            <span>${item.needsUserReview ? "Confirm manually" : "Review optional"}</span>
+          </div>
+          <p class="review-note">${escapeHtml(item.uncertaintyNote)}</p>
         </td>
-        <td><input type="number" min="0" step="0.25" value="${item.quantity}" aria-label="Manual quantity" data-draft-field="quantity" /></td>
-        <td>
-          <select data-draft-field="unit" aria-label="Manual unit">
-            ${["serving", "cup", "cups", "piece", "pieces", "grams", "bowl", "plate", "tbsp"].map((unit) => `<option ${unit === item.unit ? "selected" : ""}>${unit}</option>`).join("")}
-          </select>
-        </td>
-        <td>${confidenceMarkup(item)}</td>
-        <td class="review-note">${item.needsUserReview ? "Confirm manually" : "Review optional"}<br>${escapeHtml(item.uncertaintyNote)}</td>
+        <td>${amountMarkup(item, "data-draft-field")}</td>
+        <td>${portionSummaryMarkup(item, "draft")}</td>
       </tr>
+      ${state.activePortionEditorId === item.id && itemHasPortionSizes(item) ? `
+        <tr class="portion-editor-row">
+          <td colspan="3">${portionEditorMarkup(item, "data-draft-field")}</td>
+        </tr>
+      ` : ""}
       ${itemNeedsManualNutrition(item) ? `
         <tr class="manual-nutrition-row">
-          <td colspan="5">
+          <td colspan="3">
             ${manualNutritionPanelMarkup(item)}
           </td>
         </tr>
@@ -599,6 +654,18 @@
       }
       const eventName = input.dataset.draftField === "unit" ? "change" : "input";
       input.addEventListener(eventName, (event) => updateManualDraft(event.target.dataset.draftField, event.target.value));
+      if (["quantity", "totalGrams", "diameterValue"].includes(input.dataset.draftField)) {
+        input.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            renderManualDraft();
+          }
+        });
+      }
+    });
+    els.manualDraftBody.querySelector("[data-portion-toggle]")?.addEventListener("click", () => togglePortionEditor(item.id));
+    els.manualDraftBody.querySelectorAll(".portion-editor-row").forEach((row) => {
+      bindPortionEditor(row, item.id, (_id, field, value) => updateManualDraft(field, value));
     });
     els.manualDraftBody.querySelectorAll("[data-nutrient]").forEach((input) => {
       input.addEventListener("input", (event) => updateManualNutrient(item.id, event.target.dataset.nutrient, event.target.value));
@@ -635,6 +702,150 @@
     return `<span class="confidence"><i class="dot ${level}"></i>${percent}% <button class="info-button" type="button" title="${escapeAttr(basis)}" aria-label="${escapeAttr(basis)}">i</button></span>`;
   }
 
+  function unitOptions() {
+    return ["serving", "cup", "cups", "piece", "pieces", "slice", "slices", "grams", "bowl", "plate", "tbsp"];
+  }
+
+  function amountMarkup(item, fieldAttr) {
+    return `
+      <div class="amount-control">
+        <input type="number" min="0" step="0.25" value="${item.quantity}" aria-label="Quantity" ${fieldAttr}="quantity" />
+        <select ${fieldAttr}="unit" aria-label="Unit">
+          ${unitOptions().map((unit) => `<option ${unit === item.unit ? "selected" : ""}>${unit}</option>`).join("")}
+        </select>
+      </div>
+    `;
+  }
+
+  function portionSummaryMarkup(item, mode) {
+    refreshPortionTotals(item);
+    if (!itemUsesGramCalculation(item)) {
+      const grams = displayGramsForItem(item);
+      return grams.value ? `<span class="gram-estimate ${grams.estimated ? "estimated" : ""}">${grams.estimated ? "~" : ""}${round1(grams.value)}g</span>` : "<span class=\"muted-cell\">-</span>";
+    }
+    if (!itemHasPortionSizes(item)) return `<span class="gram-estimate">${round1(item.totalGrams || 0)}g</span>`;
+    const label = item.portionSize ? capitalize(item.portionSize) : "Estimate";
+    const grams = `${round1(item.totalGrams || 0)}g`;
+    const detail = item.portionSize === "custom" && item.portionEstimateMode === "dimensions"
+      ? `Size · ${grams}`
+      : `${label} · ${grams}`;
+    return `<button class="portion-pill" type="button" data-portion-toggle="${escapeAttr(mode)}">${escapeHtml(detail)}</button>`;
+  }
+
+  function portionEditorMarkup(item, fieldAttr) {
+    refreshPortionTotals(item);
+    if (!itemUsesGramCalculation(item)) return "";
+    const supportsSizes = itemHasPortionSizes(item);
+    const customMode = item.portionEstimateMode || "grams";
+    return `
+      <div class="portion-editor">
+        <div class="portion-editor-head">
+          <strong>Portion estimate</strong>
+          <span>${round1(item.totalGrams || 0)}g used for nutrition calculation</span>
+        </div>
+        ${supportsSizes ? `
+          <div class="portion-size-buttons">
+            ${["small", "medium", "large", "custom"].map((size) => `
+              <button type="button" class="${item.portionSize === size ? "active" : ""}" data-portion-choice="${size}">${capitalize(size)}</button>
+            `).join("")}
+          </div>
+          <p class="portion-reference">${portionReferenceText(item)}</p>
+        ` : ""}
+        ${item.portionSize === "custom" ? `
+          <div class="custom-mode">
+            <label>
+              Custom by
+              <select ${fieldAttr}="portionEstimateMode" aria-label="Custom portion mode">
+                <option value="grams" ${customMode === "grams" ? "selected" : ""}>Estimated grams</option>
+                ${supportsDimensionEstimate(item) ? `<option value="dimensions" ${customMode === "dimensions" ? "selected" : ""}>Size</option>` : ""}
+              </select>
+            </label>
+          </div>
+          ${customMode === "dimensions" && supportsDimensionEstimate(item) ? dimensionInputsMarkup(item, fieldAttr) : customGramInputMarkup(item, fieldAttr)}
+        ` : ""}
+      </div>
+    `;
+  }
+
+  function customGramInputMarkup(item, fieldAttr) {
+    return `
+      <div class="portion-custom-grid">
+        <label>
+          Total grams
+          <input type="number" min="0" step="1" value="${round1(item.totalGrams || 0)}" aria-label="Total grams" ${fieldAttr}="totalGrams" />
+        </label>
+      </div>
+    `;
+  }
+
+  function dimensionInputsMarkup(item, fieldAttr) {
+    return `
+      <div class="portion-custom-grid">
+        <label>
+          Diameter
+          <input type="number" min="0" step="0.25" value="${item.diameterValue || ""}" aria-label="Diameter" ${fieldAttr}="diameterValue" />
+        </label>
+        <label>
+          Unit
+          <select ${fieldAttr}="diameterUnit" aria-label="Diameter unit">
+            ${["in", "cm"].map((unit) => `<option value="${unit}" ${unit === (item.diameterUnit || "in") ? "selected" : ""}>${unit}</option>`).join("")}
+          </select>
+        </label>
+        <label>
+          Thickness
+          <select ${fieldAttr}="thickness" aria-label="Thickness">
+            ${["thin", "medium", "thick"].map((value) => `<option value="${value}" ${value === (item.thickness || "medium") ? "selected" : ""}>${capitalize(value)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+    `;
+  }
+
+  function portionReferenceText(item) {
+    const reference = findPortionReference(item.foodName);
+    if (!reference) return "";
+    if (supportsDimensionEstimate(item)) {
+      return [
+        `Small ${defaultDiameterFor(reference, "small")} in / ${round1(reference.smallGrams)}g`,
+        `Medium ${defaultDiameterFor(reference, "medium")} in / ${round1(reference.mediumGrams)}g`,
+        `Large ${defaultDiameterFor(reference, "large")} in / ${round1(reference.largeGrams)}g`
+      ].join(" · ");
+    }
+    return [
+      `Small ${round1(reference.smallGrams)}g`,
+      `Medium ${round1(reference.mediumGrams)}g`,
+      `Large ${round1(reference.largeGrams)}g`
+    ].join(" · ");
+  }
+
+  function bindPortionEditor(row, itemId, updater) {
+    row.querySelectorAll("[data-portion-choice]").forEach((button) => {
+      button.addEventListener("click", () => updater(itemId, "portionSize", button.dataset.portionChoice));
+    });
+    row.querySelectorAll("[data-field], [data-draft-field]").forEach((input) => {
+      const attr = input.dataset.field ? "field" : "draftField";
+      const eventName = input.tagName === "SELECT" ? "change" : "input";
+      input.addEventListener(eventName, (event) => updater(itemId, event.target.dataset[attr], event.target.value));
+    });
+  }
+
+  function togglePortionEditor(id) {
+    const item = state.items.find((entry) => entry.id === id) || state.manualDraft;
+    if (!item || !itemHasPortionSizes(item)) return;
+    state.activePortionEditorId = state.activePortionEditorId === id ? null : id;
+    renderAll();
+  }
+
+  function displayGramsForItem(item) {
+    if (!item) return { value: 0, estimated: false };
+    const unit = normalizeUnit(item.unit);
+    if (!unit) return { value: 0, estimated: false };
+    if (DISPLAY_GRAMS_BY_UNIT[unit]) {
+      return { value: Math.max(0, number(item.quantity)) * DISPLAY_GRAMS_BY_UNIT[unit], estimated: true };
+    }
+    return { value: unitToGrams(item.unit, item.quantity, item.foodName), estimated: false };
+  }
+
   function updateItem(id, field, value) {
     const item = state.items.find((entry) => entry.id === id);
     if (!item) return;
@@ -643,10 +854,39 @@
       item.unit = value;
       refreshUnitSupport(item);
     }
+    if (field === "portionSize") {
+      item.portionSize = value;
+      if (value === "custom") {
+        item.portionEstimateMode = item.portionEstimateMode || "grams";
+      } else {
+        item.portionEstimateMode = "";
+      }
+      item.needsUserReview = item.needsUserReview || value === "custom";
+    }
+    if (field === "portionEstimateMode") {
+      item.portionEstimateMode = value;
+      item.needsUserReview = true;
+      if (value === "dimensions") seedDimensionDefaults(item);
+    }
+    if (field === "totalGrams") {
+      item.totalGrams = Math.max(0, number(value));
+      item.portionSize = "custom";
+      item.portionEstimateMode = "grams";
+      item.gramsPerUnit = item.quantity > 0 ? item.totalGrams / item.quantity : item.totalGrams;
+    }
+    if (["diameterValue", "diameterUnit", "thickness"].includes(field)) {
+      if (field === "diameterValue") item.diameterValue = Math.max(0, number(value));
+      if (field === "diameterUnit") item.diameterUnit = value;
+      if (field === "thickness") item.thickness = value;
+      item.portionSize = "custom";
+      item.portionEstimateMode = "dimensions";
+      item.needsUserReview = true;
+    }
     if (field === "foodName") {
       applyFoodNameChange(item, value, findReference);
     }
-    if (field === "unit") {
+    refreshPortionTotals(item);
+    if (["unit", "foodName", "portionSize", "portionEstimateMode", "diameterUnit", "thickness"].includes(field)) {
       renderAll();
     } else {
       renderTotals();
@@ -670,9 +910,38 @@
       item.unit = value;
       refreshUnitSupport(item);
     }
+    if (field === "portionSize") {
+      item.portionSize = value;
+      if (value === "custom") {
+        item.portionEstimateMode = item.portionEstimateMode || "grams";
+      } else {
+        item.portionEstimateMode = "";
+      }
+      item.needsUserReview = item.needsUserReview || value === "custom";
+    }
+    if (field === "portionEstimateMode") {
+      item.portionEstimateMode = value;
+      item.needsUserReview = true;
+      if (value === "dimensions") seedDimensionDefaults(item);
+    }
+    if (field === "totalGrams") {
+      item.totalGrams = Math.max(0, number(value));
+      item.portionSize = "custom";
+      item.portionEstimateMode = "grams";
+      item.gramsPerUnit = item.quantity > 0 ? item.totalGrams / item.quantity : item.totalGrams;
+    }
+    if (["diameterValue", "diameterUnit", "thickness"].includes(field)) {
+      if (field === "diameterValue") item.diameterValue = Math.max(0, number(value));
+      if (field === "diameterUnit") item.diameterUnit = value;
+      if (field === "thickness") item.thickness = value;
+      item.portionSize = "custom";
+      item.portionEstimateMode = "dimensions";
+      item.needsUserReview = true;
+    }
     if (field === "foodName") {
       applyFoodNameChange(item, value, findReference);
     }
+    refreshPortionTotals(item);
     renderManualDraft();
   }
 
@@ -801,7 +1070,8 @@
       return 1;
     }
     if (item.base && item.base.per100) {
-      return unitToGrams(item.unit, item.quantity, item.foodName) / 100;
+      if (!item.totalGrams || item.portionSize !== "custom") refreshPortionTotals(item);
+      return (item.totalGrams || unitToGrams(item.unit, item.quantity, item.foodName)) / 100;
     }
     const unitFactor = UNIT_FACTORS[item.unit] || 1;
     return Math.max(0, number(item.quantity)) * unitFactor;
@@ -813,7 +1083,7 @@
     if (["gram", "grams", "g"].includes(normalized)) return qty;
     if (normalized === "tbsp") return qty * 15;
     if (["cup", "cups"].includes(normalized)) return qty * 150;
-    if (["piece", "pieces"].includes(normalized)) return qty * estimatePieceGrams(foodName);
+    if (["piece", "pieces", "slice", "slices"].includes(normalized)) return qty * estimatePieceGrams(foodName);
     return qty * 100;
   }
 
@@ -823,6 +1093,148 @@
     if (/apple|orange|banana|potato|tomato/.test(name)) return 120;
     if (/chicken|fish|steak|bread|roti|naan|tortilla/.test(name)) return 80;
     return 100;
+  }
+
+  function applyPortionDefaults(item, options = {}) {
+    const reference = findPortionReference(item.foodName);
+    if (!item.base || !item.base.per100) {
+      clearPortionData(item);
+      return item;
+    }
+
+    item.nutritionBasis = "per_100g";
+    if (reference && PORTION_UNITS.has(normalizeUnit(item.unit))) {
+      item.portionReference = reference;
+      if (!options.keepExisting || !item.portionSize) item.portionSize = reference.defaultSize || "medium";
+      if (item.portionSize !== "custom") {
+        item.gramsPerUnit = gramsForPortionSize(reference, item.portionSize);
+      }
+      if (item.portionSize === "custom" && item.portionEstimateMode === "dimensions") seedDimensionDefaults(item);
+      refreshPortionTotals(item);
+      return item;
+    }
+
+    item.portionReference = null;
+    item.portionSize = "";
+    item.gramsPerUnit = null;
+    item.totalGrams = unitToGrams(item.unit, item.quantity, item.foodName);
+    return item;
+  }
+
+  function refreshPortionTotals(item) {
+    if (!item || !item.base || !item.base.per100) return;
+    const reference = findPortionReference(item.foodName);
+    item.nutritionBasis = "per_100g";
+    if (reference && PORTION_UNITS.has(normalizeUnit(item.unit))) {
+      item.portionReference = reference;
+      if (!item.portionSize) item.portionSize = reference.defaultSize || "medium";
+      if (item.portionSize !== "custom") {
+        item.gramsPerUnit = gramsForPortionSize(reference, item.portionSize);
+        item.totalGrams = Math.max(0, number(item.quantity)) * item.gramsPerUnit;
+      } else if (item.portionEstimateMode === "dimensions" && supportsDimensionEstimate(item)) {
+        seedDimensionDefaults(item);
+        item.gramsPerUnit = gramsFromDimensions(item, reference);
+        item.totalGrams = Math.max(0, number(item.quantity)) * item.gramsPerUnit;
+      } else if (!item.totalGrams) {
+        item.portionEstimateMode = "grams";
+        item.gramsPerUnit = gramsForPortionSize(reference, reference.defaultSize || "medium");
+        item.totalGrams = Math.max(0, number(item.quantity)) * item.gramsPerUnit;
+      }
+      return;
+    }
+
+    item.portionReference = null;
+    item.portionSize = "";
+    if (item.gramsPerUnit && PORTION_UNITS.has(normalizeUnit(item.unit))) {
+      item.totalGrams = Math.max(0, number(item.quantity)) * item.gramsPerUnit;
+      return;
+    }
+    item.gramsPerUnit = null;
+    item.totalGrams = unitToGrams(item.unit, item.quantity, item.foodName);
+  }
+
+  function clearPortionData(item) {
+    item.portionReference = null;
+    item.portionSize = "";
+    item.gramsPerUnit = null;
+    item.totalGrams = null;
+    item.nutritionBasis = "";
+    item.portionEstimateMode = "";
+    item.diameterValue = null;
+    item.diameterUnit = "";
+    item.thickness = "";
+  }
+
+  function itemUsesGramCalculation(item) {
+    return Boolean(item && item.base && item.base.per100);
+  }
+
+  function itemHasPortionSizes(item) {
+    return Boolean(itemUsesGramCalculation(item) && findPortionReference(item.foodName) && PORTION_UNITS.has(normalizeUnit(item.unit)));
+  }
+
+  function supportsDimensionEstimate(item) {
+    return Boolean(itemHasPortionSizes(item) && /roti|chapati|paratha|naan|pizza|dosa|tortilla/i.test(item.foodName));
+  }
+
+  function findPortionReference(foodName) {
+    const normalized = normalizeFoodName(foodName);
+    if (!normalized) return null;
+    return state.portionReferences.find((ref) => normalizeFoodName(ref.foodName) === normalized)
+      || state.portionReferences.find((ref) => normalized.includes(normalizeFoodName(ref.foodName)) || normalizeFoodName(ref.foodName).includes(normalized));
+  }
+
+  function gramsForPortionSize(reference, size) {
+    if (size === "small") return reference.smallGrams;
+    if (size === "large") return reference.largeGrams;
+    return reference.mediumGrams;
+  }
+
+  function seedDimensionDefaults(item) {
+    const reference = findPortionReference(item.foodName);
+    if (!reference) return;
+    item.diameterUnit = item.diameterUnit || "in";
+    item.thickness = item.thickness || "medium";
+    if (!item.diameterValue) item.diameterValue = defaultDiameterFor(reference, reference.defaultSize || "medium");
+  }
+
+  function gramsFromDimensions(item, reference) {
+    const defaultDiameter = defaultDiameterFor(reference, reference.defaultSize || "medium");
+    const inputDiameter = diameterToInches(item.diameterValue || defaultDiameter, item.diameterUnit || "in");
+    const mediumGrams = reference.mediumGrams || gramsForPortionSize(reference, reference.defaultSize || "medium");
+    const thicknessFactor = { thin: 0.8, medium: 1, thick: 1.25 }[item.thickness || "medium"] || 1;
+    return Math.max(0, mediumGrams * Math.pow(inputDiameter / defaultDiameter, 2) * thicknessFactor);
+  }
+
+  function defaultDiameterFor(reference, size) {
+    const name = normalizeFoodName(reference.foodName);
+    if (name.includes("pizza")) {
+      if (size === "small") return 4;
+      if (size === "large") return 7;
+      return 5.5;
+    }
+    if (name.includes("dosa")) {
+      if (size === "small") return 7;
+      if (size === "large") return 12;
+      return 9;
+    }
+    if (size === "small") return 5;
+    if (size === "large") return 7.5;
+    return 6;
+  }
+
+  function diameterToInches(value, unit) {
+    const diameter = Math.max(0, number(value));
+    return unit === "cm" ? diameter / 2.54 : diameter;
+  }
+
+  function normalizeFoodName(value) {
+    return String(value || "").toLowerCase().replace(/\bslices?\b/g, "").replace(/\s+/g, " ").trim();
+  }
+
+  function capitalize(value) {
+    const text = String(value || "");
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
   }
 
   function nutrientValue(base, key) {
@@ -863,7 +1275,7 @@
     return /salad|vegetable|tomato|pepper|fruit|salsa|lemon|greens/i.test(`${base.name} ${base.staples || ""} ${base.notes || ""}`) ? 45 : 12;
   }
 
-  function saveReviewedMeal() {
+  async function saveReviewedMeal() {
     if (!state.items.length) {
       els.saveMessage.textContent = "Add or analyze at least one item.";
       return;
@@ -873,31 +1285,72 @@
       els.saveMessage.textContent = "Update unclear items before saving.";
       return;
     }
+    const meal = buildReviewedMealPayload();
+    els.saveMealButton.disabled = true;
+    els.saveMessage.textContent = "Saving reviewed meal...";
+    try {
+      const url = state.currentMealId ? `/api/meals/${encodeURIComponent(state.currentMealId)}` : "/api/meals";
+      const response = await fetch(url, {
+        method: state.currentMealId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(meal)
+      });
+      const savedMeal = await response.json();
+      if (!response.ok) throw new Error(savedMeal.error || "Meal save failed.");
+      state.currentMealId = savedMeal.id;
+      state.history = upsertHistoryMeal(savedMeal, state.history).slice(0, 25);
+      localStorage.setItem("nutritracker.history", JSON.stringify(state.history));
+      els.saveMessage.textContent = "Saved reviewed meal.";
+      renderHistory();
+    } catch (error) {
+      const fallbackMeal = {
+        ...meal,
+        id: state.currentMealId || crypto.randomUUID(),
+        photo: meal.photoConsent ? meal.photo : "",
+        savedAt: new Date().toISOString()
+      };
+      state.currentMealId = fallbackMeal.id;
+      state.history = upsertHistoryMeal(fallbackMeal, state.history).slice(0, 25);
+      localStorage.setItem("nutritracker.history", JSON.stringify(state.history));
+      els.saveMessage.textContent = `${error.message} Saved locally until the backend is available.`;
+      renderHistory();
+    } finally {
+      els.saveMealButton.disabled = false;
+    }
+  }
+
+  function buildReviewedMealPayload() {
     const totals = calculateTotals(state.items);
-    const meal = {
-      id: crypto.randomUUID(),
+    return {
       mealType: els.mealType.value,
       eatenAt: els.mealTime.value,
       location: els.userLocation.value,
       city: els.userCity.value,
+      photoConsent: els.saveConsent.checked,
       photo: els.saveConsent.checked ? state.photoDataUrl : "",
       items: state.items.map((item) => ({
         foodName: item.foodName,
         quantity: item.quantity,
         unit: item.unit,
         confidence: item.confidence,
+        needsUserReview: item.needsUserReview,
+        uncertaintyNote: item.uncertaintyNote,
         sourceName: item.sourceName,
         manualEntry: item.manualEntry || false,
         base: itemNeedsManualNutrition(item) ? item.base : null,
-        unsupportedUnit: item.unsupportedUnit || false
+        unsupportedUnit: item.unsupportedUnit || false,
+        portionSize: item.portionSize || "",
+        gramsPerUnit: item.gramsPerUnit || null,
+        totalGrams: item.totalGrams || null,
+        nutritionBasis: item.nutritionBasis || "",
+        portionEstimateMode: item.portionEstimateMode || "",
+        diameterValue: item.diameterValue || null,
+        diameterUnit: item.diameterUnit || "",
+        thickness: item.thickness || "",
+        nutrition: calculateTotals([item])
       })),
       totals,
-      savedAt: new Date().toISOString()
     };
-    state.history.unshift(meal);
-    localStorage.setItem("nutritracker.history", JSON.stringify(state.history.slice(0, 25)));
-    els.saveMessage.textContent = "Saved reviewed meal.";
-    renderHistory();
   }
 
   function renderHistory() {
@@ -920,13 +1373,20 @@
     });
   }
 
-  function reopenMeal(id) {
-    const meal = state.history.find((entry) => entry.id === id);
+  async function reopenMeal(id) {
+    let meal = state.history.find((entry) => entry.id === id);
+    try {
+      const response = await fetch(`/api/meals/${encodeURIComponent(id)}`, { cache: "no-store" });
+      if (response.ok) meal = await response.json();
+    } catch {
+      // Local fallback below keeps the app usable while the backend is down.
+    }
     if (!meal) return;
+    state.currentMealId = meal.id;
     state.items = meal.items.map((saved) => {
       const ref = findReference(saved.foodName) || fallbackReferences()[0];
       const base = saved.base || ref;
-      return {
+      const item = {
         id: crypto.randomUUID(),
         foodName: saved.foodName,
         quantity: saved.quantity,
@@ -937,8 +1397,17 @@
         sourceName: saved.sourceName,
         manualEntry: saved.manualEntry || false,
         unsupportedUnit: saved.unsupportedUnit || false,
+        portionSize: saved.portionSize || "",
+        gramsPerUnit: saved.gramsPerUnit || null,
+        totalGrams: saved.totalGrams || null,
+        nutritionBasis: saved.nutritionBasis || "",
+        portionEstimateMode: saved.portionEstimateMode || "",
+        diameterValue: saved.diameterValue || null,
+        diameterUnit: saved.diameterUnit || "",
+        thickness: saved.thickness || "",
         base
       };
+      return applyPortionDefaults(item, { keepExisting: true });
     });
     els.mealType.value = meal.mealType;
     els.mealTime.value = meal.eatenAt;
@@ -958,10 +1427,15 @@
     renderAll();
   }
 
-  function clearHistory() {
+  async function clearHistory() {
+    const meals = [...state.history];
     state.history = [];
     localStorage.removeItem("nutritracker.history");
     renderHistory();
+    await Promise.all(meals.map((meal) => fetch(`/api/meals/${encodeURIComponent(meal.id)}`, {
+      method: "DELETE"
+    }).catch(() => null)));
+    state.currentMealId = null;
   }
 
   function readHistory() {
@@ -970,6 +1444,22 @@
     } catch {
       return [];
     }
+  }
+
+  async function loadMealHistory() {
+    try {
+      const response = await fetch("/api/meals", { cache: "no-store" });
+      if (!response.ok) throw new Error("Backend history unavailable.");
+      state.history = await response.json();
+      localStorage.setItem("nutritracker.history", JSON.stringify(state.history));
+    } catch {
+      state.history = readHistory();
+    }
+    renderHistory();
+  }
+
+  function upsertHistoryMeal(meal, meals) {
+    return [meal, ...meals.filter((entry) => entry.id !== meal.id)];
   }
 
   function findReference(name) {
@@ -986,6 +1476,7 @@
       item.sourceName = match.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
       item.confidence = confidenceFromReference(match, value);
       refreshUnitSupport(item);
+      applyPortionDefaults(item);
       item.needsUserReview = item.unsupportedUnit;
       item.uncertaintyNote = item.unsupportedUnit
         ? "Food matched foodtable.md, but the selected measurement is not supported for this reference. Enter nutrient values for this quantity."
@@ -1000,6 +1491,7 @@
     item.unsupportedUnit = false;
     item.referenceBase = null;
     item.manualEntry = item.manualEntry || false;
+    clearPortionData(item);
     item.uncertaintyNote = "This item is not in foodtable.md. Enter the nutrient values you know; unknown values can stay blank.";
     return item;
   }
@@ -1027,16 +1519,18 @@
     if (item.unsupportedUnit) {
       item.base = createManualNutritionPlaceholder(item.foodName);
       item.sourceName = "Manual entry, measurement not matched";
+      clearPortionData(item);
       return;
     }
     item.base = reference;
     item.sourceName = reference.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
+    applyPortionDefaults(item, { keepExisting: true });
   }
 
   function unitSupportedByReference(base, unit) {
     const normalized = normalizeUnit(unit);
     if (!normalized) return false;
-    if (base.per100) return PER_100_UNITS.has(normalized);
+    if (base.per100) return PER_100_UNITS.has(normalized) || PORTION_UNITS.has(normalized);
     if (MEAL_FALLBACK_UNITS.has(normalized)) return true;
     return unitsFromAverageQuantity(base.avgQty).has(normalized);
   }
@@ -1218,6 +1712,31 @@
     ];
   }
 
+  function fallbackPortionReferences() {
+    return [
+      {
+        foodName: "Roti",
+        unit: "piece",
+        smallGrams: 25,
+        mediumGrams: 35,
+        largeGrams: 50,
+        defaultSize: "medium",
+        nutritionBasis: "per_100g",
+        notes: "Fallback variable-size flatbread portion"
+      },
+      {
+        foodName: "Pizza slice",
+        unit: "slice",
+        smallGrams: 80,
+        mediumGrams: 110,
+        largeGrams: 150,
+        defaultSize: "medium",
+        nutritionBasis: "per_100g",
+        notes: "Fallback variable-size pizza portion"
+      }
+    ];
+  }
+
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
@@ -1254,9 +1773,11 @@
     module.exports = {
       parseFoodTable,
       parseIngredientNutrition,
+      parsePortionSizeReference,
       calculateTotals,
       fallbackReferences,
       fallbackIngredientReferences,
+      fallbackPortionReferences,
       createItemFromReference,
       createManualAddedItem,
       createItemFromAiComponent,
@@ -1266,6 +1787,7 @@
       createManualNutritionPlaceholder,
       unitSupportedByReference,
       createUnclearItem,
+      applyPortionDefaults,
       runDemoVisionAnalysis
     };
   }

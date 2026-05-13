@@ -112,17 +112,21 @@
               <h2>Detected food items</h2>
               <p id="analysisNote">Upload a photo, then review the detected items.</p>
             </div>
-            <button id="addItemButton" class="secondary">Add item</button>
+            <button id="addItemButton" class="secondary add-item-button">Add item</button>
           </div>
           <div class="items-table-wrap">
             <table class="items-table">
+              <colgroup>
+                <col class="food-col">
+                <col class="amount-col">
+                <col class="portion-col">
+                <col class="action-col">
+              </colgroup>
               <thead>
                 <tr>
-                  <th>Food</th>
-                  <th>Qty</th>
-                  <th>Unit</th>
-                  <th>Confidence</th>
-                  <th>Review</th>
+                  <th>Food and review</th>
+                  <th>Amount</th>
+                  <th>Portion</th>
                   <th></th>
                 </tr>
               </thead>
@@ -140,13 +144,16 @@
             </div>
             <div class="items-table-wrap">
               <table class="items-table">
+                <colgroup>
+                  <col class="food-col">
+                  <col class="amount-col">
+                  <col class="portion-col">
+                </colgroup>
                 <thead>
                   <tr>
-                    <th>Food</th>
-                    <th>Qty</th>
-                    <th>Unit</th>
-                    <th>Confidence</th>
-                    <th>Review</th>
+                    <th>Food and review</th>
+                    <th>Amount</th>
+                    <th>Portion</th>
                   </tr>
                 </thead>
                 <tbody id="manualDraftBody"></tbody>
