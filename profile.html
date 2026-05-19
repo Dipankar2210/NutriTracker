@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NutriTracker Profile</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar">
+        <div class="brand-intro">
+          <p class="eyebrow">User profile</p>
+          <h1 id="profileName">NutriTracker profile</h1>
+          <p class="brand-copy" id="profileSummary">Log in to view saved calories, meal dates, and reviewed meal details.</p>
+          <p class="estimate-note">Nutrition values are estimates unless verified by trusted package or nutrition database data.</p>
+          <p class="warning" id="profileMessage"></p>
+        </div>
+        <div class="top-actions">
+          <a class="secondary link-button" id="addMealLink" href="index.html">Add meal</a>
+          <a class="secondary link-button" id="adminLink" href="admin.html" hidden>Admin</a>
+          <button class="secondary" id="unsubscribeButton" type="button">Unsubscribe</button>
+        </div>
+      </section>
+
+      <section class="summary-grid profile-summary">
+        <article class="summary-card calories">
+          <span>Saved calories</span>
+          <strong id="totalCalories">0</strong>
+          <small>kcal</small>
+        </article>
+        <article class="summary-card">
+          <span>Protein</span>
+          <strong id="totalProtein">0g</strong>
+          <div class="bar"><i id="proteinBar"></i></div>
+        </article>
+        <article class="summary-card">
+          <span>Carbs</span>
+          <strong id="totalCarbs">0g</strong>
+          <div class="bar blue"><i id="carbBar"></i></div>
+        </article>
+        <article class="summary-card">
+          <span>Fat</span>
+          <strong id="totalFat">0g</strong>
+          <div class="bar red"><i id="fatBar"></i></div>
+        </article>
+      </section>
+
+      <section class="dashboard-panel">
+        <div class="section-head">
+          <div>
+            <h2>Calendar view</h2>
+            <p id="dashboardMessage">Loading dashboard...</p>
+          </div>
+          <button class="secondary" id="refreshDashboardButton">Refresh</button>
+        </div>
+        <div id="calendarList" class="calendar-list"></div>
+      </section>
+
+      <section class="history-panel">
+        <div class="section-head">
+          <div>
+            <h2>Saved meals</h2>
+            <p id="mealListLabel">Select a date or open a meal.</p>
+          </div>
+        </div>
+        <div id="mealList" class="history-list"></div>
+      </section>
+
+      <section class="dashboard-panel" id="mealDetailPanel" hidden>
+        <div class="section-head">
+          <div>
+            <h2 id="mealDetailTitle">Meal detail</h2>
+            <p id="mealDetailMeta"></p>
+          </div>
+        </div>
+        <div id="mealDetail" class="meal-detail"></div>
+      </section>
+    </main>
+
+    <script src="profile.js"></script>
+  </body>
+</html>

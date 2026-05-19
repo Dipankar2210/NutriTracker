@@ -54,6 +54,44 @@ const ingredientTotals = calculateTotals([
 assert.equal(Math.round(ingredientTotals.calories), 330);
 assert.equal(Math.round(ingredientTotals.protein), 62);
 
+const perGramTotals = calculateTotals([
+  {
+    id: "per-gram-test",
+    foodName: "Chicken breast",
+    quantity: 200,
+    unit: "grams",
+    confidence: 0.9,
+    base: {
+      ...chicken,
+      calories: 9999,
+      nutritionPerGram: {
+        calories: chicken.calories / 100,
+        protein: chicken.protein / 100
+      }
+    }
+  }
+]);
+
+assert.equal(Math.round(perGramTotals.calories), 330);
+assert.equal(Math.round(perGramTotals.protein), 62);
+
+const tomato = ingredients.find((item) => item.name === "Tomato");
+assert.ok(tomato, "Tomato ingredient reference should exist");
+
+const cherryTomatoTotals = calculateTotals([
+  {
+    id: "cherry-tomato-test",
+    foodName: "cherry tomatoes",
+    quantity: 5,
+    unit: "pieces",
+    confidence: 0.9,
+    base: tomato
+  }
+]);
+
+assert.equal(Math.round(cherryTomatoTotals.calories), 15);
+assert.equal(Math.round(cherryTomatoTotals.carbs), 3);
+
 const roti = ingredients.find((item) => item.name === "Roti");
 const rotiPortion = portionSizes.find((item) => item.foodName === "Roti");
 assert.ok(roti, "Roti ingredient reference should exist");
@@ -76,6 +114,46 @@ const rotiTotals = calculateTotals([
 
 assert.equal(Math.round(rotiTotals.calories), 208);
 assert.equal(Math.round(rotiTotals.carbs), 32);
+
+const mutableItems = [
+  {
+    id: "rice",
+    foodName: "White rice",
+    quantity: 150,
+    unit: "grams",
+    confidence: 0.9,
+    base: {
+      name: "White rice",
+      calories: 130,
+      protein: 2.7,
+      carbs: 28,
+      fat: 0.3,
+      fiber: 0.4,
+      sodium: 1,
+      per100: true
+    }
+  },
+  {
+    id: "roti",
+    foodName: "Roti",
+    quantity: 2,
+    unit: "pieces",
+    portionSize: "medium",
+    gramsPerUnit: 35,
+    totalGrams: 70,
+    nutritionBasis: "per_100g",
+    confidence: 0.8,
+    base: roti
+  }
+];
+
+const beforeEditTotals = calculateTotals(mutableItems);
+mutableItems[0].quantity = 200;
+const afterQuantityEditTotals = calculateTotals(mutableItems);
+const afterRemoveTotals = calculateTotals(mutableItems.slice(0, 1));
+
+assert.ok(afterQuantityEditTotals.calories > beforeEditTotals.calories, "quantity edits should increase totals");
+assert.ok(afterRemoveTotals.calories < afterQuantityEditTotals.calories, "removing an item should reduce totals");
 
 const editedItem = createItemFromReference(dalRice, 0.9, "test");
 applyFoodNameChange(editedItem, "Unsupported mystery food", () => null);

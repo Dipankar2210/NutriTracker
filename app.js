@@ -35,6 +35,13 @@
     plate: 300
   };
 
+  const PIECE_GRAM_ESTIMATES = [
+    { pattern: /cherry tomato|grape tomato/, grams: 17 },
+    { pattern: /egg/, grams: 50 },
+    { pattern: /apple|orange|banana|potato|tomato/, grams: 120 },
+    { pattern: /chicken|fish|steak|bread|roti|naan|tortilla/, grams: 80 }
+  ];
+
   const NUTRIENT_FIELDS = [
     ["calories", "Calories", "kcal"],
     ["protein", "Protein", "g"],
@@ -56,7 +63,7 @@
   const MEAL_FALLBACK_UNITS = new Set(["serving"]);
 
   const CITY_OPTIONS_BY_LOCATION = {
-    India: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Kolkata", "Mumbai", "Pune"],
+    India: ["Ahmedabad", "Bengaluru", "Chennai", "Delhi", "Hyderabad", "Kolkata", "Mumbai", "Pune", "Gujarat", "Kerala", "Punjab", "Tamil Nadu", "West Bengal"],
     "South Asia": ["Colombo", "Dhaka", "Islamabad", "Karachi", "Kathmandu", "Lahore"],
     "North America": ["Chicago", "Los Angeles", "New York", "Phoenix", "Toronto", "Vancouver"],
     "Latin America": ["Bogota", "Buenos Aires", "Lima", "Mexico City", "Rio de Janeiro", "Santiago", "Sao Paulo"],
@@ -68,17 +75,61 @@
     Oceania: ["Auckland", "Brisbane", "Melbourne", "Perth", "Sydney"]
   };
 
+  const INDIAN_CITY_TO_REGION = {
+    ahmedabad: "Gujarat",
+    surat: "Gujarat",
+    vadodara: "Gujarat",
+    rajkot: "Gujarat",
+    bengaluru: "Karnataka",
+    bangalore: "Karnataka",
+    chennai: "Tamil Nadu",
+    coimbatore: "Tamil Nadu",
+    madurai: "Tamil Nadu",
+    delhi: "Delhi",
+    "new delhi": "Delhi",
+    hyderabad: "Telangana",
+    kolkata: "West Bengal",
+    mumbai: "Maharashtra",
+    pune: "Maharashtra",
+    kochi: "Kerala",
+    trivandrum: "Kerala",
+    thiruvananthapuram: "Kerala",
+    chandigarh: "Chandigarh",
+    jaipur: "Rajasthan",
+    lucknow: "Uttar Pradesh",
+    kanpur: "Uttar Pradesh",
+    patna: "Bihar",
+    bhopal: "Madhya Pradesh",
+    indore: "Madhya Pradesh",
+    raipur: "Chhattisgarh",
+    ranchi: "Jharkhand",
+    bhubaneswar: "Odisha",
+    guwahati: "Assam",
+    panaji: "Goa",
+    shimla: "Himachal Pradesh",
+    srinagar: "Jammu and Kashmir",
+    leh: "Ladakh",
+    amritsar: "Punjab",
+    ludhiana: "Punjab"
+  };
+
   const state = {
     references: [],
     ingredientReferences: [],
     portionReferences: [],
+    regionalFoodItems: [],
+    regionalStaples: [],
+    regions: [],
     items: [],
     manualDraft: null,
     activePortionEditorId: null,
+    activeSuggestKey: null,
     photoDataUrl: "",
     fileName: "",
     history: [],
-    currentMealId: null
+    currentMealId: null,
+    sessionToken: "",
+    currentUser: null
   };
 
   const els = {};
@@ -89,6 +140,7 @@
 
   function init() {
     bindElements();
+    initSessionAccess();
     setDefaultTime();
     setDetectedLocation();
     bindEvents();
@@ -134,10 +186,43 @@
       "saveMealButton",
       "saveMessage",
       "historyList",
-      "clearHistoryButton"
+      "clearHistoryButton",
+      "profileLink"
     ].forEach((id) => {
       els[id] = document.getElementById(id);
     });
+  }
+
+  function initSessionAccess() {
+    state.sessionToken = localStorage.getItem("nutritracker.sessionToken") || "";
+    if (!state.sessionToken) {
+      window.location.href = "login.html";
+      return;
+    }
+    loadCurrentUser();
+  }
+
+  async function loadCurrentUser() {
+    try {
+      const response = await fetchWithAccess("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) throw new Error("User profile unavailable.");
+      const payload = await response.json();
+      state.currentUser = payload.user;
+      if (els.referenceStatus) {
+        els.referenceStatus.textContent = `${state.currentUser.displayName} profile active`;
+      }
+    } catch {
+      state.currentUser = null;
+      localStorage.removeItem("nutritracker.sessionToken");
+      state.sessionToken = "";
+      window.location.href = "login.html";
+    }
+  }
+
+  function fetchWithAccess(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (state.sessionToken) headers.set("X-Auth-Token", state.sessionToken);
+    return fetch(url, { ...options, headers });
   }
 
   function bindEvents() {
@@ -270,20 +355,49 @@
 
   async function loadFoodReference() {
     try {
-      const response = await fetch("foodtable.md", { cache: "no-store" });
-      if (!response.ok) throw new Error("foodtable.md unavailable");
-      const markdown = await response.text();
-      state.references = parseFoodTable(markdown);
-      state.ingredientReferences = parseIngredientNutrition(markdown);
-      state.portionReferences = parsePortionSizeReference(markdown);
+      const response = await fetch("/api/food-reference", { cache: "no-store" });
+      if (!response.ok) throw new Error("food reference unavailable");
+      const reference = await response.json();
+      state.references = reference.meals || [];
+      state.ingredientReferences = reference.ingredients || [];
+      state.portionReferences = reference.portionSizes || [];
+      await loadRegionalFoodReference();
       els.referenceStatus.textContent = "Nutrition data ready";
       renderSuggestionLists();
     } catch (error) {
-      state.references = fallbackReferences();
-      state.ingredientReferences = fallbackIngredientReferences();
-      state.portionReferences = fallbackPortionReferences();
-      els.referenceStatus.textContent = "Basic nutrition data ready";
+      try {
+        const response = await fetch("foodtable.md", { cache: "no-store" });
+        if (!response.ok) throw new Error("foodtable.md unavailable");
+        const markdown = await response.text();
+        state.references = parseFoodTable(markdown);
+        state.ingredientReferences = parseIngredientNutrition(markdown);
+        state.portionReferences = parsePortionSizeReference(markdown);
+        els.referenceStatus.textContent = "Nutrition data ready";
+      } catch {
+        state.references = fallbackReferences();
+        state.ingredientReferences = fallbackIngredientReferences();
+        state.portionReferences = fallbackPortionReferences();
+        els.referenceStatus.textContent = "Basic nutrition data ready";
+      }
       renderSuggestionLists();
+    }
+  }
+
+  async function loadRegionalFoodReference() {
+    try {
+      const [regionsResponse, regionalResponse] = await Promise.all([
+        fetch("/api/regions?country=IN", { cache: "no-store" }),
+        fetch("/api/regional-foods?country=IN", { cache: "no-store" })
+      ]);
+      if (!regionsResponse.ok || !regionalResponse.ok) throw new Error("regional reference unavailable");
+      state.regions = await regionsResponse.json();
+      const regional = await regionalResponse.json();
+      state.regionalFoodItems = regional.foods || [];
+      state.regionalStaples = regional.staples || [];
+    } catch {
+      state.regions = [];
+      state.regionalFoodItems = [];
+      state.regionalStaples = [];
     }
   }
 
@@ -298,13 +412,13 @@
 
   function renderCitySuggestions() {
     if (!els.citySuggestions) return;
-    els.citySuggestions.innerHTML = citySuggestionsForLocation(els.userLocation.value)
+    els.citySuggestions.innerHTML = citySuggestionsForLocation(els.userLocation.value, state.regions)
       .map((city) => `<option value="${escapeAttr(city)}"></option>`)
       .join("");
   }
 
   function handleLocationChange() {
-    const options = citySuggestionsForLocation(els.userLocation.value);
+    const options = citySuggestionsForLocation(els.userLocation.value, state.regions);
     if (els.userCity.value && !options.includes(els.userCity.value)) {
       els.userCity.value = "";
     }
@@ -312,11 +426,16 @@
     analyzeCurrentPhoto();
   }
 
-  function citySuggestionsForLocation(location) {
+  function citySuggestionsForLocation(location, regions = []) {
     const normalized = String(location || "").toLowerCase();
     const key = Object.keys(CITY_OPTIONS_BY_LOCATION).find((entry) => entry.toLowerCase() === normalized)
       || Object.keys(CITY_OPTIONS_BY_LOCATION).find((entry) => normalized.includes(entry.toLowerCase()) || entry.toLowerCase().includes(normalized));
-    return key ? CITY_OPTIONS_BY_LOCATION[key] : [];
+    const base = key ? CITY_OPTIONS_BY_LOCATION[key] : [];
+    if (String(location || "").toLowerCase() !== "india") return base;
+    const regionNames = regions
+      .filter((region) => region.countryIso2 === "IN")
+      .map((region) => region.name);
+    return uniqueValues([...base, ...regionNames]);
   }
 
   function parseFoodTable(markdown) {
@@ -521,7 +640,9 @@
       confidence,
       uncertaintyNote: `${component.uncertaintyNote} ${component.evidence ? `Basis: ${component.evidence}` : ""}`.trim(),
       needsUserReview: confidence < 0.72 || !ingredient,
-      sourceName: ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
+      sourceName: ingredient && ingredient._regional
+        ? `Regional nutrition estimate (${ingredient.regionalRegion || "India"})`
+        : ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
       manualEntry: false,
       base
     });
@@ -563,15 +684,16 @@
       const row = document.createElement("tr");
       row.innerHTML = `
         <td class="food-review-cell">
-          <input value="${escapeAttr(item.foodName)}" aria-label="Food name" data-field="foodName" list="foodSuggestions-${item.id}" />
-          <datalist id="foodSuggestions-${item.id}">
-            ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
-          </datalist>
+          <div class="suggest-wrap">
+            <input value="${escapeAttr(item.foodName)}" aria-label="Food name" data-field="foodName" data-suggest-key="item:${item.id}" autocomplete="off" />
+            ${suggestionsMarkup(`item:${item.id}`, item.foodName)}
+          </div>
           <div class="item-meta">
             ${confidenceMarkup(item)}
             <span>${item.needsUserReview ? "Confirm manually" : "Review optional"}</span>
           </div>
           <p class="review-note">${escapeHtml(item.uncertaintyNote)}</p>
+          <p class="review-note calculation-note">${escapeHtml(calculationBasisText(item))}</p>
         </td>
         <td>${amountMarkup(item, "data-field")}</td>
         <td>${portionSummaryMarkup(item, "item")}</td>
@@ -579,6 +701,11 @@
       `;
       row.querySelectorAll("[data-field]").forEach((input) => {
         input.addEventListener("input", (event) => updateItem(item.id, event.target.dataset.field, event.target.value));
+        if (input.dataset.field === "foodName") {
+          input.addEventListener("focus", () => updateSuggestionList(input, (value) => updateItem(item.id, "foodName", value)));
+          input.addEventListener("input", () => updateSuggestionList(input, (value) => updateItem(item.id, "foodName", value)));
+          input.addEventListener("keydown", (event) => handleSuggestionKeys(event, input.dataset.suggestKey, (value) => updateItem(item.id, "foodName", value)));
+        }
         if (["quantity", "totalGrams", "diameterValue"].includes(input.dataset.field)) {
           input.addEventListener("change", renderAll);
           input.addEventListener("keydown", (event) => {
@@ -588,10 +715,8 @@
             }
           });
         }
-        if (input.dataset.field === "foodName") {
-          input.addEventListener("change", renderAll);
-        }
       });
+      bindSuggestionClicks(row, (value) => updateItem(item.id, "foodName", value));
       row.querySelector("[data-portion-toggle]")?.addEventListener("click", () => togglePortionEditor(item.id));
       row.querySelector("[data-remove]").addEventListener("click", () => removeItem(item.id));
       els.itemsBody.appendChild(row);
@@ -618,15 +743,16 @@
     els.manualDraftBody.innerHTML = `
       <tr>
         <td class="food-review-cell">
-          <input value="${escapeAttr(item.foodName)}" aria-label="Manual food name" data-draft-field="foodName" list="manualFoodSuggestions" />
-          <datalist id="manualFoodSuggestions">
-            ${foodSuggestions().map((name) => `<option value="${escapeAttr(name)}"></option>`).join("")}
-          </datalist>
+          <div class="suggest-wrap">
+            <input value="${escapeAttr(item.foodName)}" aria-label="Manual food name" data-draft-field="foodName" data-suggest-key="manual:${item.id}" autocomplete="off" />
+            ${suggestionsMarkup(`manual:${item.id}`, item.foodName)}
+          </div>
           <div class="item-meta">
             ${confidenceMarkup(item)}
             <span>${item.needsUserReview ? "Confirm manually" : "Review optional"}</span>
           </div>
           <p class="review-note">${escapeHtml(item.uncertaintyNote)}</p>
+          <p class="review-note calculation-note">${escapeHtml(calculationBasisText(item))}</p>
         </td>
         <td>${amountMarkup(item, "data-draft-field")}</td>
         <td>${portionSummaryMarkup(item, "draft")}</td>
@@ -648,7 +774,10 @@
       if (input.dataset.draftField === "foodName") {
         input.addEventListener("input", (event) => {
           if (state.manualDraft) state.manualDraft.foodName = event.target.value;
+          updateSuggestionList(input, (value) => updateManualDraft("foodName", value));
         });
+        input.addEventListener("focus", () => updateSuggestionList(input, (value) => updateManualDraft("foodName", value)));
+        input.addEventListener("keydown", (event) => handleSuggestionKeys(event, input.dataset.suggestKey, (value) => updateManualDraft("foodName", value)));
         input.addEventListener("change", (event) => updateManualDraft("foodName", event.target.value));
         return;
       }
@@ -664,6 +793,7 @@
       }
     });
     els.manualDraftBody.querySelector("[data-portion-toggle]")?.addEventListener("click", () => togglePortionEditor(item.id));
+    bindSuggestionClicks(els.manualDraftBody, (value) => updateManualDraft("foodName", value));
     els.manualDraftBody.querySelectorAll(".portion-editor-row").forEach((row) => {
       bindPortionEditor(row, item.id, (_id, field, value) => updateManualDraft(field, value));
     });
@@ -719,17 +849,57 @@
 
   function portionSummaryMarkup(item, mode) {
     refreshPortionTotals(item);
+    const calories = itemCalories(item);
     if (!itemUsesGramCalculation(item)) {
       const grams = displayGramsForItem(item);
-      return grams.value ? `<span class="gram-estimate ${grams.estimated ? "estimated" : ""}">${grams.estimated ? "~" : ""}${round1(grams.value)}g</span>` : "<span class=\"muted-cell\">-</span>";
+      return grams.value
+        ? `<span class="gram-estimate ${grams.estimated ? "estimated" : ""}">${grams.estimated ? "~" : ""}${round1(grams.value)}g <small>${Math.round(calories)} kcal</small></span>`
+        : `<span class="gram-estimate"><small>${Math.round(calories)} kcal</small></span>`;
     }
-    if (!itemHasPortionSizes(item)) return `<span class="gram-estimate">${round1(item.totalGrams || 0)}g</span>`;
+    if (!itemHasPortionSizes(item)) return `<span class="gram-estimate">${round1(item.totalGrams || 0)}g <small>${Math.round(calories)} kcal</small></span>`;
     const label = item.portionSize ? capitalize(item.portionSize) : "Estimate";
     const grams = `${round1(item.totalGrams || 0)}g`;
+    const kcal = `${Math.round(calories)} kcal`;
     const detail = item.portionSize === "custom" && item.portionEstimateMode === "dimensions"
-      ? `Size · ${grams}`
-      : `${label} · ${grams}`;
+      ? `Size · ${grams} · ${kcal}`
+      : `${label} · ${grams} · ${kcal}`;
     return `<button class="portion-pill" type="button" data-portion-toggle="${escapeAttr(mode)}">${escapeHtml(detail)}</button>`;
+  }
+
+  function calculationBasisText(item) {
+    if (!item || !item.base) return "";
+    const quantity = Math.max(0, number(item.quantity));
+    const unit = normalizeUnit(item.unit);
+    if (item.base.editableNutrition || item.unsupportedUnit) {
+      return "Calculation: using manual nutrition values for the quantity shown.";
+    }
+    if (!item.base.per100) {
+      const factor = itemFactor(item);
+      return `Calculation: ${round1(quantity)} ${unit || item.unit || "serving"} x ${round1(factor / Math.max(quantity, 1))} meal serving factor.`;
+    }
+
+    refreshPortionTotals(item);
+    const totalGrams = gramsForCalculation(item);
+    const perGramCalories = perGramNutrientValue(item.base, "calories");
+    const perGramProtein = perGramNutrientValue(item.base, "protein");
+    const perGramText = `${round2(perGramCalories)} kcal/g${perGramProtein ? `, ${round2(perGramProtein)}g protein/g` : ""}`;
+
+    if (["gram", "grams", "g"].includes(unit)) {
+      return `Calculation: ${round1(totalGrams)}g entered directly; ${item.base.name || item.foodName} ${perGramText}.`;
+    }
+    if (["piece", "pieces", "slice", "slices"].includes(unit)) {
+      const gramsPerUnit = quantity > 0 ? totalGrams / quantity : item.gramsPerUnit || estimatePieceGrams(item.foodName);
+      return `Calculation: ${round1(quantity)} ${unit} x ${round1(gramsPerUnit)}g each = ${round1(totalGrams)}g; ${item.base.name || item.foodName} ${perGramText}.`;
+    }
+    return `Calculation: ${round1(totalGrams)}g estimated from ${round1(quantity)} ${unit || item.unit}; ${item.base.name || item.foodName} ${perGramText}.`;
+  }
+
+  function perGramNutrientValue(base, key) {
+    if (!base) return 0;
+    if (base.nutritionPerGram && base.nutritionPerGram[key] !== null && base.nutritionPerGram[key] !== undefined) {
+      return number(base.nutritionPerGram[key]);
+    }
+    return nutrientValue(base, key) / 100;
   }
 
   function portionEditorMarkup(item, fieldAttr) {
@@ -829,6 +999,74 @@
     });
   }
 
+  function suggestionsMarkup(key, query) {
+    if (state.activeSuggestKey !== key) return "";
+    const matches = foodSuggestions(query).slice(0, 25);
+    if (!matches.length) return "";
+    return `
+      <div class="suggest-list" role="listbox">
+        ${matches.map((suggestion, index) => `
+          <button type="button" role="option" data-suggest-value="${escapeAttr(suggestion.name)}" data-suggest-index="${index}">
+            <span>${escapeHtml(suggestion.name)}</span>
+            <small>${escapeHtml(suggestion.type)}</small>
+          </button>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function showSuggestions(key) {
+    state.activeSuggestKey = key;
+    renderAll();
+  }
+
+  function hideSuggestions() {
+    state.activeSuggestKey = null;
+  }
+
+  function updateSuggestionList(input, onSelect) {
+    state.activeSuggestKey = input.dataset.suggestKey;
+    const wrap = input.closest(".suggest-wrap");
+    if (!wrap) return;
+    const existing = wrap.querySelector(".suggest-list");
+    if (existing) existing.remove();
+    const matches = foodSuggestions(input.value).slice(0, 25);
+    if (!matches.length) return;
+    const list = document.createElement("div");
+    list.className = "suggest-list";
+    list.setAttribute("role", "listbox");
+    list.innerHTML = matches.map((suggestion, index) => `
+      <button type="button" role="option" data-suggest-value="${escapeAttr(suggestion.name)}" data-suggest-index="${index}">
+        <span>${escapeHtml(suggestion.name)}</span>
+        <small>${escapeHtml(suggestion.type)}</small>
+      </button>
+    `).join("");
+    wrap.appendChild(list);
+    bindSuggestionClicks(wrap, onSelect);
+  }
+
+  function bindSuggestionClicks(container, onSelect) {
+    container.querySelectorAll("[data-suggest-value]").forEach((button) => {
+      button.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+        onSelect(button.dataset.suggestValue);
+        hideSuggestions();
+        renderAll();
+      });
+    });
+  }
+
+  function handleSuggestionKeys(event, key, onSelect) {
+    if (event.key !== "Enter") return;
+    const input = event.target;
+    const firstMatch = foodSuggestions(input.value)[0];
+    if (!firstMatch) return;
+    event.preventDefault();
+    onSelect(firstMatch.name);
+    hideSuggestions();
+    renderAll();
+  }
+
   function togglePortionEditor(id) {
     const item = state.items.find((entry) => entry.id === id) || state.manualDraft;
     if (!item || !itemHasPortionSizes(item)) return;
@@ -844,6 +1082,10 @@
       return { value: Math.max(0, number(item.quantity)) * DISPLAY_GRAMS_BY_UNIT[unit], estimated: true };
     }
     return { value: unitToGrams(item.unit, item.quantity, item.foodName), estimated: false };
+  }
+
+  function itemCalories(item) {
+    return calculateTotals([{ ...item }]).calories;
   }
 
   function updateItem(id, field, value) {
@@ -969,7 +1211,7 @@
   }
 
   function renderTotals() {
-    const totals = calculateTotals(state.items);
+    const totals = calculateTotals(currentCalculationItems());
     els.totalCalories.textContent = Math.round(totals.calories);
     els.totalProtein.textContent = `${round1(totals.protein)}g`;
     els.totalCarbs.textContent = `${round1(totals.carbs)}g`;
@@ -1025,23 +1267,30 @@
   function calculateTotals(items) {
     return items.reduce((totals, item) => {
       const factor = itemFactor(item);
-      totals.calories += nutrientValue(item.base, "calories") * factor;
-      totals.protein += nutrientValue(item.base, "protein") * factor;
-      totals.carbs += nutrientValue(item.base, "carbs") * factor;
-      totals.fat += nutrientValue(item.base, "fat") * factor;
-      totals.fiber += nutrientValue(item.base, "fiber") * factor;
-      totals.sodium += nutrientValue(item.base, "sodium") * factor;
-      totals.sugar += estimateSugar(item.base) * factor;
+      totals.calories += nutrientTotal(item, "calories", factor);
+      totals.protein += nutrientTotal(item, "protein", factor);
+      totals.carbs += nutrientTotal(item, "carbs", factor);
+      totals.fat += nutrientTotal(item, "fat", factor);
+      totals.fiber += nutrientTotal(item, "fiber", factor);
+      totals.sodium += nutrientTotal(item, "sodium", factor);
+      totals.sugar += nutrientTotal(item, "sugar", factor, estimateSugar(item.base));
       totals.addedSugar += estimateAddedSugar(item.base) * factor;
-      totals.saturatedFat += nutrientOrEstimate(item.base, "saturatedFat", nutrientValue(item.base, "fat") * 0.32) * factor;
+      totals.saturatedFat += nutrientTotal(item, "saturatedFat", factor, nutrientValue(item.base, "fat") * 0.32);
       totals.transFat += nutrientValue(item.base, "fat") > 35 ? 0.2 * factor : 0;
-      totals.cholesterol += nutrientOrEstimate(item.base, "cholesterol", estimateCholesterol(item.base)) * factor;
-      totals.potassium += nutrientOrEstimate(item.base, "potassium", nutrientValue(item.base, "fiber") * 95 + nutrientValue(item.base, "protein") * 12) * factor;
-      totals.calcium += nutrientOrEstimate(item.base, "calcium", estimateCalcium(item.base)) * factor;
-      totals.iron += nutrientOrEstimate(item.base, "iron", nutrientValue(item.base, "protein") * 0.12 + nutrientValue(item.base, "fiber") * 0.08) * factor;
-      totals.vitaminC += nutrientOrEstimate(item.base, "vitaminC", estimateVitaminC(item.base)) * factor;
+      totals.cholesterol += nutrientTotal(item, "cholesterol", factor, estimateCholesterol(item.base));
+      totals.potassium += nutrientTotal(item, "potassium", factor, nutrientValue(item.base, "fiber") * 95 + nutrientValue(item.base, "protein") * 12);
+      totals.calcium += nutrientTotal(item, "calcium", factor, estimateCalcium(item.base));
+      totals.iron += nutrientTotal(item, "iron", factor, nutrientValue(item.base, "protein") * 0.12 + nutrientValue(item.base, "fiber") * 0.08);
+      totals.vitaminC += nutrientTotal(item, "vitaminC", factor, estimateVitaminC(item.base));
       return totals;
     }, emptyTotals());
+  }
+
+  function currentCalculationItems() {
+    return state.items.map((item) => {
+      refreshPortionTotals(item);
+      return { ...item };
+    });
   }
 
   function emptyTotals() {
@@ -1064,17 +1313,29 @@
     };
   }
 
+  function nutrientTotal(item, key, factor, fallback) {
+    if (!item || !item.base) return 0;
+    if (item.base.per100 && item.base.nutritionPerGram && item.base.nutritionPerGram[key] !== null && item.base.nutritionPerGram[key] !== undefined) {
+      return gramsForCalculation(item) * number(item.base.nutritionPerGram[key]);
+    }
+    const value = fallback === undefined ? nutrientValue(item.base, key) : fallback;
+    return value * factor;
+  }
+
   function itemFactor(item) {
     if (!item.base) return 0;
     if (item.base.editableNutrition || item.unsupportedUnit) {
       return 1;
     }
     if (item.base && item.base.per100) {
-      if (!item.totalGrams || item.portionSize !== "custom") refreshPortionTotals(item);
-      return (item.totalGrams || unitToGrams(item.unit, item.quantity, item.foodName)) / 100;
+      return gramsForCalculation(item) * perGramFactor(item.base);
     }
     const unitFactor = UNIT_FACTORS[item.unit] || 1;
     return Math.max(0, number(item.quantity)) * unitFactor;
+  }
+
+  function perGramFactor(base) {
+    return base && base.per100 ? 0.01 : 1;
   }
 
   function unitToGrams(unit, quantity, foodName) {
@@ -1087,11 +1348,19 @@
     return qty * 100;
   }
 
+  function gramsForCalculation(item) {
+    if (!item || !item.base || !item.base.per100) return 0;
+    if (item.portionSize === "custom" && item.portionEstimateMode === "grams" && item.totalGrams) {
+      return item.totalGrams;
+    }
+    refreshPortionTotals(item);
+    return item.totalGrams || unitToGrams(item.unit, item.quantity, item.foodName);
+  }
+
   function estimatePieceGrams(foodName) {
     const name = String(foodName || "").toLowerCase();
-    if (/egg/.test(name)) return 50;
-    if (/apple|orange|banana|potato|tomato/.test(name)) return 120;
-    if (/chicken|fish|steak|bread|roti|naan|tortilla/.test(name)) return 80;
+    const estimate = PIECE_GRAM_ESTIMATES.find((item) => item.pattern.test(name));
+    if (estimate) return estimate.grams;
     return 100;
   }
 
@@ -1290,7 +1559,7 @@
     els.saveMessage.textContent = "Saving reviewed meal...";
     try {
       const url = state.currentMealId ? `/api/meals/${encodeURIComponent(state.currentMealId)}` : "/api/meals";
-      const response = await fetch(url, {
+      const response = await fetchWithAccess(url, {
         method: state.currentMealId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(meal)
@@ -1320,7 +1589,8 @@
   }
 
   function buildReviewedMealPayload() {
-    const totals = calculateTotals(state.items);
+    const calculationItems = currentCalculationItems();
+    const totals = calculateTotals(calculationItems);
     return {
       mealType: els.mealType.value,
       eatenAt: els.mealTime.value,
@@ -1328,7 +1598,7 @@
       city: els.userCity.value,
       photoConsent: els.saveConsent.checked,
       photo: els.saveConsent.checked ? state.photoDataUrl : "",
-      items: state.items.map((item) => ({
+      items: calculationItems.map((item) => ({
         foodName: item.foodName,
         quantity: item.quantity,
         unit: item.unit,
@@ -1376,7 +1646,7 @@
   async function reopenMeal(id) {
     let meal = state.history.find((entry) => entry.id === id);
     try {
-      const response = await fetch(`/api/meals/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const response = await fetchWithAccess(`/api/meals/${encodeURIComponent(id)}`, { cache: "no-store" });
       if (response.ok) meal = await response.json();
     } catch {
       // Local fallback below keeps the app usable while the backend is down.
@@ -1432,7 +1702,7 @@
     state.history = [];
     localStorage.removeItem("nutritracker.history");
     renderHistory();
-    await Promise.all(meals.map((meal) => fetch(`/api/meals/${encodeURIComponent(meal.id)}`, {
+    await Promise.all(meals.map((meal) => fetchWithAccess(`/api/meals/${encodeURIComponent(meal.id)}`, {
       method: "DELETE"
     }).catch(() => null)));
     state.currentMealId = null;
@@ -1448,7 +1718,7 @@
 
   async function loadMealHistory() {
     try {
-      const response = await fetch("/api/meals", { cache: "no-store" });
+      const response = await fetchWithAccess("/api/meals", { cache: "no-store" });
       if (!response.ok) throw new Error("Backend history unavailable.");
       state.history = await response.json();
       localStorage.setItem("nutritracker.history", JSON.stringify(state.history));
@@ -1473,14 +1743,18 @@
       item.base = match;
       item.referenceBase = match;
       item.manualEntry = item.manualEntry || false;
-      item.sourceName = match.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
+      item.sourceName = match._regional
+        ? `Regional nutrition estimate (${match.regionalRegion || "India"})`
+        : match.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
       item.confidence = confidenceFromReference(match, value);
       refreshUnitSupport(item);
       applyPortionDefaults(item);
       item.needsUserReview = item.unsupportedUnit;
       item.uncertaintyNote = item.unsupportedUnit
         ? "Food matched foodtable.md, but the selected measurement is not supported for this reference. Enter nutrient values for this quantity."
-        : "Matched typed food name to foodtable.md nutrition data.";
+        : match._regional
+          ? `Matched ${match.regionalName || value} to regional food data and ${match.name} nutrition.`
+          : "Matched typed food name to foodtable.md nutrition data.";
       return item;
     }
 
@@ -1523,7 +1797,9 @@
       return;
     }
     item.base = reference;
-    item.sourceName = reference.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
+    item.sourceName = reference._regional
+      ? `Regional nutrition estimate (${reference.regionalRegion || "India"})`
+      : reference.per100 ? "Ingredient nutrition estimate" : "Meal nutrition estimate";
     applyPortionDefaults(item, { keepExisting: true });
   }
 
@@ -1595,30 +1871,129 @@
   function findIngredientReference(name) {
     const query = String(name || "").toLowerCase().trim();
     if (!query) return null;
-    return state.ingredientReferences.find((ref) => ref.name.toLowerCase() === query)
-      || state.ingredientReferences.find((ref) => ref.name.toLowerCase().includes(query) || query.includes(ref.name.toLowerCase()));
+    const direct = findBaseIngredientReference(query);
+    if (direct) return direct;
+    const regional = findRegionalFoodReference(query);
+    if (!regional) return null;
+    const canonical = findBaseIngredientReference(regional.canonicalFoodName);
+    if (!canonical) return null;
+    return {
+      ...canonical,
+      regionalName: regional.localName || regional.foodName,
+      regionalRegion: regional.regionName,
+      sourceName: regional.sourceName || canonical.sourceName,
+      sourceUrl: regional.sourceUrl || canonical.sourceUrl,
+      sourceBasis: regional.sourceBasis,
+      dataConfidence: regional.confidence || canonical.dataConfidence,
+      _regional: true
+    };
   }
 
   function foodSuggestions(query) {
     const normalized = String(query || "").toLowerCase().trim();
-    const ingredientMatches = state.ingredientReferences
-      .filter((ref) => {
-        if (!normalized || normalized.length < 2) return true;
-        return ref.name.toLowerCase().includes(normalized)
-          || ref.category.toLowerCase().includes(normalized);
-      })
-      .slice(0, 40)
-      .map((ref) => ref.name);
-    const mealMatches = state.references
-      .filter((ref) => {
-        if (!normalized || normalized.length < 2) return true;
-        return ref.name.toLowerCase().includes(normalized)
-          || ref.staples.toLowerCase().includes(normalized)
-          || normalized.split(/\s+/).some((part) => part.length > 2 && ref.name.toLowerCase().includes(part));
-      })
-      .slice(0, 20)
-      .map((ref) => ref.name);
-    return uniqueValues([...ingredientMatches, ...mealMatches]);
+    const scoredRegional = currentRegionalFoodItems()
+      .map((ref) => scoreSuggestion({
+        name: ref.localName || ref.foodName,
+        type: ref.regionName ? `${ref.regionName} food` : "Regional food",
+        searchText: `${ref.foodName} ${ref.localName || ""} ${ref.canonicalFoodName} ${ref.foodGroup} ${ref.regionName}`,
+        scoreOffset: -12
+      }, normalized))
+      .filter(Boolean);
+    const scoredIngredients = state.ingredientReferences
+      .map((ref) => scoreSuggestion({
+        name: ref.name,
+        type: "Ingredient",
+        searchText: `${ref.name} ${ref.category} ${ref.commonState || ""}`
+      }, normalized))
+      .filter(Boolean);
+    const scoredMeals = state.references
+      .map((ref) => scoreSuggestion({
+        name: ref.name,
+        type: "Meal",
+        searchText: `${ref.name} ${ref.staples} ${ref.region}`
+      }, normalized))
+      .filter(Boolean);
+    const seen = new Set();
+    return [...scoredRegional, ...scoredIngredients, ...scoredMeals]
+      .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name))
+      .filter((suggestion) => {
+        const key = suggestion.name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function scoreSuggestion(suggestion, query) {
+    const name = suggestion.name.toLowerCase();
+    const text = suggestion.searchText.toLowerCase();
+    if (!query || query.length < 2) {
+      return { ...suggestion, score: (suggestion.type === "Ingredient" ? 50 : 70) + (suggestion.scoreOffset || 0) };
+    }
+    const terms = query.split(/\s+/).filter(Boolean);
+    const allTermsMatch = terms.every((term) => text.includes(term));
+    if (!allTermsMatch) return null;
+    let score = 100;
+    if (name === query) score = 0;
+    else if (name.startsWith(query)) score = 5;
+    else if (name.split(/\s+/).some((word) => word.startsWith(query))) score = 10;
+    else if (name.includes(query)) score = 20;
+    else score = 40;
+    score += suggestion.type === "Meal" ? 4 : 0;
+    score += suggestion.scoreOffset || 0;
+    score += Math.min(20, name.length / 4);
+    return { ...suggestion, score };
+  }
+
+  function findBaseIngredientReference(query) {
+    const normalized = String(query || "").toLowerCase().trim();
+    if (!normalized) return null;
+    return state.ingredientReferences.find((ref) => ref.name.toLowerCase() === normalized)
+      || state.ingredientReferences.find((ref) => ref.name.toLowerCase().includes(normalized) || normalized.includes(ref.name.toLowerCase()));
+  }
+
+  function findRegionalFoodReference(query) {
+    const normalized = String(query || "").toLowerCase().trim();
+    if (!normalized) return null;
+    const foods = currentRegionalFoodItems();
+    return foods.find((ref) => regionalFoodMatches(ref, normalized, true))
+      || foods.find((ref) => regionalFoodMatches(ref, normalized, false));
+  }
+
+  function regionalFoodMatches(ref, query, exact) {
+    const values = [ref.localName, ref.foodName, ref.canonicalFoodName].filter(Boolean).map((value) => value.toLowerCase());
+    if (exact) return values.some((value) => value === query);
+    return values.some((value) => value.includes(query) || query.includes(value));
+  }
+
+  function currentRegionalFoodItems() {
+    if (!state.regionalFoodItems.length || String(els.userLocation && els.userLocation.value || "").toLowerCase() !== "india") {
+      return [];
+    }
+    const regionName = selectedIndianRegionName();
+    const regional = regionName
+      ? state.regionalFoodItems.filter((item) => item.regionName === regionName)
+      : [];
+    return uniqueRegionalFoods([...regional, ...state.regionalFoodItems]);
+  }
+
+  function selectedIndianRegionName() {
+    const city = String(els.userCity && els.userCity.value || "").trim();
+    if (!city) return "";
+    const normalized = city.toLowerCase();
+    const directRegion = state.regions.find((region) => region.name.toLowerCase() === normalized);
+    if (directRegion) return directRegion.name;
+    return INDIAN_CITY_TO_REGION[normalized] || "";
+  }
+
+  function uniqueRegionalFoods(foods) {
+    const seen = new Set();
+    return foods.filter((food) => {
+      const key = `${food.regionName}:${food.localName || food.foodName}:${food.canonicalFoodName}`.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   function confidenceBasis(item) {
@@ -1753,6 +2128,10 @@
 
   function round1(value) {
     return Math.round(value * 10) / 10;
+  }
+
+  function round2(value) {
+    return Math.round(value * 100) / 100;
   }
 
   function escapeHtml(value) {

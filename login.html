@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NutriTracker Login</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar">
+        <div class="brand-intro">
+          <p class="eyebrow">Account access</p>
+          <h1>Login</h1>
+          <p class="brand-copy">Use your account email and password to open NutriTracker.</p>
+          <p class="estimate-note">Default local admin: admin@example.com / ChangeMe123!</p>
+        </div>
+      </section>
+
+      <section class="admin-grid">
+        <form class="form-panel auth-panel" id="loginForm">
+          <div class="section-head compact">
+            <div>
+              <h2>Sign in</h2>
+              <p>Admin and user accounts use the same login page.</p>
+            </div>
+          </div>
+          <label>
+            Email
+            <input id="email" type="email" required autocomplete="username" placeholder="admin@example.com" />
+          </label>
+          <label>
+            Password
+            <input id="password" type="password" required autocomplete="current-password" />
+          </label>
+          <div class="save-row">
+            <button class="primary" type="submit">Login</button>
+            <span id="loginMessage"></span>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script src="login.js"></script>
+  </body>
+</html>

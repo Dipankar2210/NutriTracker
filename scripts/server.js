@@ -21,6 +21,41 @@ const types = {
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
+  if (url.pathname === "/api/auth/login") {
+    handleLogin(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/auth/logout") {
+    handleLogout(request, response, url);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/auth/me") {
+    handleAuthMe(request, response, url);
+    return;
+  }
+
+  if (url.pathname === "/api/admin/users" || url.pathname.startsWith("/api/admin/users/")) {
+    handleAdminUsers(request, response, url);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/magic-link") {
+    handleMagicLinkAuth(request, response);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/auth/setup-password") {
+    handleSetupPassword(request, response);
+    return;
+  }
+
+  if (url.pathname === "/api/users/me" || url.pathname.startsWith("/api/users/me/")) {
+    handleCurrentUser(request, response, url);
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/analyze") {
     handleAnalyze(request, response);
     return;
@@ -33,6 +68,31 @@ const server = http.createServer((request, response) => {
 
   if (request.method === "GET" && url.pathname === "/api/food-reference") {
     handleFoodReference(response);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/foods/search") {
+    handleFoodSearch(url, response);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/countries") {
+    sendJson(response, 200, mealsDb.listCountries());
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/regions") {
+    sendJson(response, 200, mealsDb.listRegions(url.searchParams.get("country") || ""));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/food-sources") {
+    sendJson(response, 200, mealsDb.listFoodSourceReferences(url.searchParams.get("country") || ""));
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/regional-foods") {
+    handleRegionalFoods(url, response);
     return;
   }
 
@@ -153,12 +213,220 @@ async function handleAnalyze(request, response) {
   }
 }
 
+async function handleAdminUsers(request, response, url) {
+  try {
+    const adminSession = currentSession(request, url);
+    if (!adminSession || adminSession.role !== "admin") {
+      sendJson(response, 403, { error: "Admin login is required." });
+      return;
+    }
+
+    const segments = url.pathname.split("/").filter(Boolean);
+    const userId = segments[3] || "";
+    const action = segments[4] || "";
+
+    if (request.method === "GET" && url.pathname === "/api/admin/users") {
+      sendJson(response, 200, mealsDb.listUsers({ status: url.searchParams.get("status") || "" }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/users") {
+      const body = await readJsonBody(request);
+      const created = mealsDb.createUser(body);
+      sendJson(response, 201, withMagicLink(created, request));
+      return;
+    }
+
+    if (!userId) {
+      sendJson(response, 404, { error: "User not found." });
+      return;
+    }
+
+    if (request.method === "GET" && segments.length === 4) {
+      const user = mealsDb.getUser(userId);
+      if (!user) {
+        sendJson(response, 404, { error: "User not found." });
+        return;
+      }
+      sendJson(response, 200, user);
+      return;
+    }
+
+    if (request.method === "PUT" && segments.length === 4) {
+      const body = await readJsonBody(request);
+      const user = mealsDb.updateUser(userId, body);
+      if (!user) {
+        sendJson(response, 404, { error: "User not found." });
+        return;
+      }
+      sendJson(response, 200, user);
+      return;
+    }
+
+    if (request.method === "POST" && action === "access-links") {
+      const body = await readJsonBody(request);
+      const created = mealsDb.createUserAccessToken(userId, body);
+      sendJson(response, 201, withMagicLink(created, request));
+      return;
+    }
+
+    if (request.method === "PATCH" && action === "role") {
+      const body = await readJsonBody(request);
+      const user = mealsDb.updateUserRole(userId, body.role);
+      if (!user) {
+        sendJson(response, 404, { error: "User not found." });
+        return;
+      }
+      sendJson(response, 200, user);
+      return;
+    }
+
+    sendJson(response, 405, { error: "Method not allowed." });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message || "Unable to process admin user request." });
+  }
+}
+
+async function handleLogin(request, response) {
+  if (request.method !== "POST") {
+    sendJson(response, 405, { error: "Method not allowed." });
+    return;
+  }
+  try {
+    const body = await readJsonBody(request);
+    const session = mealsDb.loginUser(body);
+    sendJson(response, 200, session);
+  } catch (error) {
+    sendJson(response, 401, { error: error.message || "Unable to log in." });
+  }
+}
+
+function handleLogout(request, response, url) {
+  if (request.method !== "POST") {
+    sendJson(response, 405, { error: "Method not allowed." });
+    return;
+  }
+  const token = authTokenFromRequest(request, url);
+  if (token) mealsDb.revokeSession(token);
+  sendJson(response, 200, { ok: true });
+}
+
+function handleAuthMe(request, response, url) {
+  const session = currentSession(request, url);
+  if (!session) {
+    sendJson(response, 401, { error: "Login is required." });
+    return;
+  }
+  sendJson(response, 200, {
+    user: session.user,
+    role: session.role
+  });
+}
+
+async function handleMagicLinkAuth(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const session = mealsDb.validateMagicLinkToken(body.token);
+    if (!session) {
+      sendJson(response, 401, { error: "Invalid or expired magic link." });
+      return;
+    }
+    sendJson(response, 200, {
+      user: session.user,
+      tokenType: "password_setup"
+    });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message || "Unable to validate magic link." });
+  }
+}
+
+async function handleSetupPassword(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const result = mealsDb.setupUserPassword(body);
+    sendJson(response, 200, {
+      ok: true,
+      user: result.user,
+      redirect: "/login.html"
+    });
+  } catch (error) {
+    sendJson(response, 400, { error: error.message || "Unable to set password." });
+  }
+}
+
+function handleCurrentUser(request, response, url) {
+  const session = currentSession(request, url);
+  if (!session) {
+    sendJson(response, 401, { error: "Login is required." });
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/users/me") {
+    sendJson(response, 200, session.user);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/users/me/dashboard") {
+    const dashboard = mealsDb.getUserDashboard(session.user.id, {
+      start: url.searchParams.get("start") || "",
+      end: url.searchParams.get("end") || ""
+    });
+    sendJson(response, 200, dashboard);
+    return;
+  }
+
+  if (url.pathname === "/api/users/me/meals" || url.pathname.startsWith("/api/users/me/meals/")) {
+    handleCurrentUserMeals(request, response, url, session.user);
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/users/me/unsubscribe") {
+    const user = mealsDb.unsubscribeUser(session.user.id);
+    sendJson(response, 200, { ok: true, user });
+    return;
+  }
+
+  sendJson(response, 404, { error: "Current user route not found." });
+}
+
+function handleCurrentUserMeals(request, response, url, user) {
+  const mealId = decodeURIComponent(url.pathname.replace(/^\/api\/users\/me\/meals\/?/, ""));
+
+  if (request.method === "GET" && url.pathname === "/api/users/me/meals") {
+    sendJson(response, 200, mealsDb.listMeals({
+      userId: user.id,
+      mealType: url.searchParams.get("mealType") || "",
+      start: url.searchParams.get("start") || "",
+      end: url.searchParams.get("end") || ""
+    }));
+    return;
+  }
+
+  if (request.method === "GET" && mealId) {
+    const meal = mealsDb.getMeal(mealId);
+    if (!meal || meal.userId !== user.id) {
+      sendJson(response, 404, { error: "Meal not found." });
+      return;
+    }
+    sendJson(response, 200, meal);
+    return;
+  }
+
+  sendJson(response, 405, { error: "Method not allowed." });
+}
+
 async function handleMeals(request, response, url) {
   try {
     const mealId = decodeURIComponent(url.pathname.replace(/^\/api\/meals\/?/, ""));
+    const session = currentSession(request, url);
+    if (!session) {
+      sendJson(response, 401, { error: "Login is required." });
+      return;
+    }
 
     if (request.method === "GET" && url.pathname === "/api/meals") {
       sendJson(response, 200, mealsDb.listMeals({
+        userId: session.user.id,
         mealType: url.searchParams.get("mealType") || "",
         start: url.searchParams.get("start") || "",
         end: url.searchParams.get("end") || ""
@@ -168,7 +436,7 @@ async function handleMeals(request, response, url) {
 
     if (request.method === "POST" && url.pathname === "/api/meals") {
       const body = await readJsonBody(request);
-      const meal = mealsDb.createMeal(body);
+      const meal = mealsDb.createMeal({ ...body, userId: session.user.id });
       sendJson(response, 201, meal);
       return;
     }
@@ -180,7 +448,7 @@ async function handleMeals(request, response, url) {
 
     if (request.method === "GET") {
       const meal = mealsDb.getMeal(mealId);
-      if (!meal) {
+      if (!meal || meal.userId !== session.user.id) {
         sendJson(response, 404, { error: "Meal not found." });
         return;
       }
@@ -190,7 +458,12 @@ async function handleMeals(request, response, url) {
 
     if (request.method === "PUT") {
       const body = await readJsonBody(request);
-      const meal = mealsDb.updateMeal(mealId, body);
+      const existing = mealsDb.getMeal(mealId);
+      if (!existing || existing.userId !== session.user.id) {
+        sendJson(response, 404, { error: "Meal not found." });
+        return;
+      }
+      const meal = mealsDb.updateMeal(mealId, { ...body, userId: session.user.id });
       if (!meal) {
         sendJson(response, 404, { error: "Meal not found." });
         return;
@@ -200,6 +473,11 @@ async function handleMeals(request, response, url) {
     }
 
     if (request.method === "DELETE") {
+      const existing = mealsDb.getMeal(mealId);
+      if (!existing || existing.userId !== session.user.id) {
+        sendJson(response, 404, { error: "Meal not found." });
+        return;
+      }
       const deleted = mealsDb.deleteMeal(mealId);
       if (!deleted) {
         sendJson(response, 404, { error: "Meal not found." });
@@ -224,9 +502,54 @@ function handleFoodReference(response) {
   const markdown = fs.readFileSync(foodtablePath, "utf8");
   sendJson(response, 200, {
     meals: parseFoodTableRows(markdown),
-    ingredients: parseIngredientRows(markdown),
-    portionSizes: parsePortionRows(markdown)
+    ingredients: mealsDb.listNutritionReferences(),
+    portionSizes: mealsDb.listPortionReferences()
   });
+}
+
+function handleFoodSearch(url, response) {
+  const query = url.searchParams.get("q") || "";
+  const limit = Number.parseInt(url.searchParams.get("limit") || "25", 10);
+  sendJson(response, 200, {
+    query,
+    results: mealsDb.searchFoods(query, Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 50) : 25)
+  });
+}
+
+function handleRegionalFoods(url, response) {
+  sendJson(response, 200, {
+    foods: mealsDb.listRegionalFoodItems({
+      countryIso2: url.searchParams.get("country") || "",
+      regionName: url.searchParams.get("region") || "",
+      query: url.searchParams.get("q") || ""
+    }),
+    staples: mealsDb.listRegionalStapleRankings({
+      countryIso2: url.searchParams.get("country") || "",
+      regionName: url.searchParams.get("region") || ""
+    })
+  });
+}
+
+function currentSession(request, url) {
+  const token = authTokenFromRequest(request, url);
+  return token ? mealsDb.getSession(token) : null;
+}
+
+function authTokenFromRequest(request, url) {
+  const explicit = request.headers["x-auth-token"];
+  if (explicit) return Array.isArray(explicit) ? explicit[0] : explicit;
+  const auth = request.headers.authorization || "";
+  const match = String(auth).match(/^Bearer\s+(.+)$/i);
+  if (match) return match[1];
+  return url.searchParams.get("session") || "";
+}
+
+function withMagicLink(payload, request) {
+  const origin = `${request.socket.encrypted ? "https" : "http"}://${request.headers.host}`;
+  return {
+    ...payload,
+    magicLink: `${origin}${payload.magicLinkPath}`
+  };
 }
 
 async function handleReverseGeocode(url, response) {

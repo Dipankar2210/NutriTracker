@@ -6,18 +6,75 @@ Users can upload or take a meal picture, review detected food items, adjust quan
 
 The intended post-upload layout should follow the reference in `source/sample.png`: a nutrition dashboard with summary totals, target progress, and detailed nutrient tables after the image has been analyzed.
 
+For the early MVP, users are created by an admin. The admin personally shares a first-time setup magic link so the user can create a password. After setup, the user logs in to access their own profile, save meals, and review history. Automatic registration can be added later.
+
 ## Target Audience
 
 This app is for men and women ages 18-60 who want a simple way to track meals and understand nutrition without entering every item manually from scratch.
 
 ## Core Idea
 
-1. User uploads a meal photo.
-2. The app uses AI vision to detect food items on the plate.
-3. The app estimates quantity or portion size when possible.
-4. The user can manually correct food names and quantities.
-5. The app shows nutrition totals for the full meal.
-6. The user saves the reviewed meal by date and meal type.
+1. Admin creates a basic user profile.
+2. Admin shares a user-specific setup magic link.
+3. User opens the magic link, creates a password, and confirms the password.
+4. The app redirects the user to login.
+5. User logs in and accesses their profile.
+6. User uploads a meal photo.
+7. The app uses AI vision to detect food items on the plate.
+8. The app estimates quantity or portion size when possible.
+9. The user can manually correct food names and quantities.
+10. The app shows nutrition totals for the full meal.
+11. The user saves the reviewed meal by date and meal type.
+12. The profile dashboard shows daily calories, macros, and saved meals.
+
+## User Onboarding
+
+The first onboarding version should be admin-led:
+
+- Admin creates a user profile.
+- Admin enters basic details such as name, contact email or phone, location, dietary preference, and account status.
+- App creates or stores a first-time setup magic-link token for that user.
+- Admin shares the setup magic link personally outside the app.
+- User opens the setup magic link and is asked to create a password and confirm the password.
+- Password setup must include standard validation, including required fields, matching confirmation, minimum length, and reasonable complexity checks.
+- After password setup succeeds, the app redirects the user to the login page.
+- User logs in with their own credentials to access their dashboard and meal flow.
+
+This MVP does not need automatic email/SMS delivery. The magic-link setup and password login flow should be built so it can later be replaced by proper registration, email login, SMS login, or an identity provider.
+
+Magic links should be treated as private setup links. They should not expose personal data in the URL, should expire or be revoked after password setup, and one user's link should never show another user's meals or profile.
+
+## Login, Roles, and Permissions
+
+The app should have a simple login page used by both admins and normal users.
+
+- Admins log in with admin credentials before opening the admin area.
+- A default first admin credential may be seeded for local first-time setup, but it should be temporary and changeable.
+- Normal users log in after completing password setup from their first-time magic link.
+- Supported roles are `admin` and `user`.
+- Admins can create users, view users, update basic profile fields, rotate setup links, and assign admin access to another active user.
+- Normal users can add meals, review detected food, save meals, view calendar history, view meal details, and unsubscribe.
+- Admin features must not appear in the normal user dashboard.
+- Normal users must not call admin APIs successfully.
+- Unsubscribing should soft-delete or disable the user account instead of immediately hard deleting records.
+
+## User Profile Dashboard
+
+Each user should have a profile page that gives a holistic view before meal-level details.
+
+The profile dashboard should include:
+
+- Basic profile details.
+- Daily calorie and macro summary.
+- Nutrition goal progress where goals exist.
+- Calendar or date-based view showing days with saved meals.
+- Saved calories by date.
+- Meal count by date.
+- Meal type breakdown, such as breakfast, lunch, dinner, and snack.
+- Link or action to open saved meals for a selected date.
+- Meal detail view with photo, reviewed food items, quantities, confidence labels, nutrition totals, and nutrient table.
+
+The dashboard should be read-first. Editing saved meals can be added after the viewing and filtering flow is stable.
 
 ## Post-Upload Result Screen
 
@@ -112,6 +169,12 @@ No personal user information, health data, or uploaded photo URLs should be writ
 
 ## Key Features
 
+- Admin can create user profiles for the MVP.
+- Admin can log in before using the admin area.
+- Admin can generate or view a first-time setup magic link for a user.
+- Admin can promote another active user to admin.
+- User can create a password from a personally shared setup magic link.
+- User can log in after password setup.
 - Upload or capture a meal photo.
 - Detect food items from the image using AI.
 - Estimate food quantities automatically.
@@ -120,6 +183,9 @@ No personal user information, health data, or uploaded photo URLs should be writ
 - Show nutrition totals for the full meal.
 - Show nutrition details per food item.
 - Save meal history date wise and meal wise.
+- Show a user profile dashboard with calendar-based meal and calorie history.
+- Let users open saved meal details from the dashboard.
+- Let users unsubscribe, which soft-deletes or disables their account.
 - Label meals by time of day, such as breakfast, lunch, dinner, snack, or custom.
 - Show confidence levels for automatic detection.
 - Clearly explain that nutrition values are estimates.
@@ -170,6 +236,12 @@ Users may also want:
 
 The first version should focus on:
 
+- Admin-created user profiles.
+- Admin login.
+- First-time magic-link password setup.
+- User login after setup.
+- Role-based access for admin and normal users.
+- User profile dashboard with date-wise calories and meal history.
 - A photo upload screen.
 - AI image analysis for detected food items.
 - Matching AI results against `foodtable.md`.
@@ -187,6 +259,60 @@ Food recognition and portion estimates are not exact. The app should always show
 This app should not provide medical advice. Users with medical conditions should consult a qualified health professional.
 
 ## Possible Data Model
+
+### User
+
+- id
+- displayName
+- contactEmail
+- contactPhone
+- location
+- city
+- dietaryPreference
+- role
+- passwordHash
+- passwordSetAt
+- status
+- unsubscribedAt
+- deletedAt
+- createdByAdminId
+- createdAt
+- updatedAt
+
+### User Access Token
+
+- id
+- userId
+- tokenHash
+- label
+- status
+- purpose, such as password_setup
+- expiresAt
+- lastUsedAt
+- createdAt
+- revokedAt
+
+### Auth Session
+
+- id
+- userId
+- tokenHash
+- role
+- expiresAt
+- createdAt
+- revokedAt
+
+### Admin User
+
+- id
+- displayName
+- contactEmail
+- role
+- passwordHash
+- passwordChangedAt
+- status
+- createdAt
+- updatedAt
 
 ### Meal
 
@@ -279,18 +405,30 @@ This app should not provide medical advice. Users with medical conditions should
 
 ## Suggested App Flow
 
-1. Open app dashboard.
-2. Upload meal photo.
-3. AI analyzes the photo for food items and likely quantities.
-4. App checks `foodtable.md` for likely meal and portion matches.
-5. App shows the post-upload nutrition dashboard.
-6. User reviews detected foods and confidence levels.
-7. User edits unclear quantities or adds missing items.
-8. Nutrition totals recalculate after edits.
-9. User selects date, time, and meal type.
-10. User saves the meal.
-11. If the meal is missing from `foodtable.md`, the app queues a candidate entry only for registered users with location details.
-12. App updates daily progress and meal history.
+1. Admin opens the admin area.
+2. App redirects unauthenticated admin users to login.
+3. Admin logs in with admin credentials.
+4. Admin creates a user profile.
+5. App creates a first-time setup magic link for that user.
+6. Admin shares the link personally.
+7. User opens the setup magic link.
+8. App validates the setup link and asks for password and confirm password.
+9. User creates a valid password.
+10. App revokes or marks the setup link as used and redirects the user to login.
+11. User logs in.
+12. User uploads meal photo.
+13. AI analyzes the photo for food items and likely quantities.
+14. App checks `foodtable.md` and local nutrition references for likely meal and portion matches.
+15. App shows the post-upload nutrition dashboard.
+16. User reviews detected foods and confidence levels.
+17. User edits unclear quantities or adds missing items.
+18. Nutrition totals recalculate after edits.
+19. User selects date, time, and meal type.
+20. User saves the meal.
+21. If the meal is missing from `foodtable.md`, the app queues a candidate entry only for registered users with location details.
+22. App updates the user's daily progress and meal history.
+23. User can open the profile calendar, select a date, and deep dive into saved meal details.
+24. User can unsubscribe, which disables login and hides the account from active user flows while preserving soft-deleted records.
 
 ## Tech Stack
 
@@ -311,6 +449,7 @@ Good options could include:
 
 Meals should be saved by:
 
+- User
 - Date
 - Time
 - Meal type
@@ -321,9 +460,11 @@ Meals should be saved by:
 
 Users should be able to reopen a saved meal, update food items or quantities, and save the corrected version.
 
+Profile and meal history views should always filter by the current authenticated user session.
+
 ## Development Status
 
-Planning stage. The project currently contains documentation only.
+Early MVP implementation. The project has a local Node.js server, SQLite-backed meal storage, food reference data, and frontend screens for meal analysis and history. Admin-created users and magic-link dashboard access exist in an early form, but the next auth step is to add login, first-time password setup, roles, permissions, and unsubscribe soft delete.
 
 ## Privacy and Safety
 
@@ -331,6 +472,10 @@ Meal photos and nutrition records can be personal data. The app should:
 
 - Ask for user consent before storing photos.
 - Allow users to delete meal history.
+- Allow users to unsubscribe through a soft-delete or disabled account state.
 - Avoid storing sensitive data longer than needed.
 - Never expose API keys in frontend code.
+- Never expose raw magic-link tokens in logs or public records.
+- Never store plain-text passwords.
+- Keep each user's meal history and profile data isolated.
 - Make nutrition limits and estimates clear.

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NutriTracker Admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar">
+        <div class="brand-intro">
+          <p class="eyebrow">Admin onboarding</p>
+          <h1>User setup</h1>
+          <p class="brand-copy">Create a user profile and share a private setup link so the user can create a password.</p>
+          <p class="estimate-note">For the MVP, share setup links personally. Do not post them in public places.</p>
+        </div>
+        <div class="top-actions">
+          <a class="secondary link-button" href="index.html">Meal app</a>
+          <a class="secondary link-button" href="profile.html">Profile</a>
+        </div>
+      </section>
+
+      <section class="admin-grid">
+        <form class="form-panel" id="userForm">
+          <div class="section-head compact">
+            <div>
+              <h2>Create user</h2>
+              <p>Add basic details. Email or phone is required.</p>
+            </div>
+          </div>
+          <div class="field-grid two-col">
+            <label>
+              Name
+              <input id="displayName" type="text" required placeholder="Asha Patel" />
+            </label>
+            <label>
+              Email
+              <input id="contactEmail" type="email" placeholder="asha@example.com" />
+            </label>
+            <label>
+              Phone
+              <input id="contactPhone" type="tel" placeholder="+91..." />
+            </label>
+            <label>
+              Location
+              <input id="location" type="text" placeholder="India" />
+            </label>
+            <label>
+              City
+              <input id="city" type="text" placeholder="Ahmedabad" />
+            </label>
+            <label>
+              Dietary preference
+              <input id="dietaryPreference" type="text" placeholder="Vegetarian" />
+            </label>
+            <label>
+              Daily calories goal
+              <input id="dailyCalories" type="number" min="0" step="1" placeholder="1800" />
+            </label>
+            <label>
+              Daily protein goal
+              <input id="dailyProtein" type="number" min="0" step="1" placeholder="75" />
+            </label>
+          </div>
+          <div class="save-row">
+            <button class="primary" type="submit">Create user</button>
+            <span id="formMessage"></span>
+          </div>
+        </form>
+
+        <section class="form-panel">
+          <div class="section-head compact">
+            <div>
+              <h2>Magic link</h2>
+              <p>Use the latest created or rotated password setup link.</p>
+            </div>
+          </div>
+          <div class="link-output">
+            <input id="magicLink" type="text" readonly placeholder="Create a user to generate a setup link" />
+            <button class="secondary" id="copyLinkButton" type="button">Copy</button>
+          </div>
+          <p class="warning" id="linkMessage">Setup links act like private access keys until the user sets a password.</p>
+        </section>
+      </section>
+
+      <section class="history-panel">
+        <div class="section-head">
+          <div>
+            <h2>Users</h2>
+            <p>Admin-created user profiles.</p>
+          </div>
+          <button id="refreshUsersButton" class="secondary">Refresh</button>
+        </div>
+        <div id="usersList" class="history-list"></div>
+      </section>
+    </main>
+
+    <script src="admin.js"></script>
+  </body>
+</html>
