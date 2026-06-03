@@ -1,0 +1,33 @@
+{
+  "name": "NutriTracker",
+  "short_name": "NutriTracker",
+  "description": "Meal photo nutrition estimates, reviewed meals, and calorie history.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f2",
+  "theme_color": "#17764a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/nutritracker-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add meal",
+      "short_name": "Add meal",
+      "url": "/index.html",
+      "description": "Start a meal estimate"
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/profile.html",
+      "description": "Open saved meal history"
+    }
+  ]
+}

@@ -9,7 +9,9 @@
     sessionToken: "",
     dashboard: null,
     selectedDate: "",
-    currentUser: null
+    currentUser: null,
+    mealTypeFilter: "",
+    customMealTypes: []
   };
 
   const els = {};
@@ -25,6 +27,8 @@
       "totalProtein",
       "totalCarbs",
       "totalFat",
+      "activeDays",
+      "savedMealCount",
       "proteinBar",
       "carbBar",
       "fatBar",
@@ -32,6 +36,7 @@
       "refreshDashboardButton",
       "calendarList",
       "mealListLabel",
+      "mealTypeFilter",
       "mealList",
       "mealDetailPanel",
       "mealDetailTitle",
@@ -46,12 +51,13 @@
 
     state.sessionToken = localStorage.getItem("nutritracker.sessionToken") || "";
     els.refreshDashboardButton.addEventListener("click", loadDashboard);
+    if (els.mealTypeFilter) els.mealTypeFilter.addEventListener("change", changeMealTypeFilter);
     if (els.unsubscribeButton) els.unsubscribeButton.addEventListener("click", unsubscribe);
     if (!state.sessionToken) {
       window.location.href = "login.html";
       return;
     }
-    els.addMealLink.href = "index.html";
+    els.addMealLink.href = "index.html?member=1";
     loadCurrentSession();
   }
 
@@ -62,6 +68,7 @@
       if (!response.ok) throw new Error(payload.error || "Login is required.");
       state.currentUser = payload.user;
       if (els.adminLink) els.adminLink.hidden = payload.role !== "admin";
+      await loadUserMealTypes();
       loadDashboard();
     } catch {
       localStorage.removeItem("nutritracker.sessionToken");
@@ -84,6 +91,33 @@
     }
   }
 
+  async function loadUserMealTypes() {
+    try {
+      const response = await fetchWithAccess("/api/users/me/meal-types", { cache: "no-store" });
+      const mealTypes = await response.json();
+      if (!response.ok) throw new Error(mealTypes.error || "Unable to load meal types.");
+      state.customMealTypes = Array.isArray(mealTypes) ? mealTypes : [];
+      renderMealTypeFilterOptions();
+    } catch {
+      state.customMealTypes = [];
+      renderMealTypeFilterOptions();
+    }
+  }
+
+  function renderMealTypeFilterOptions() {
+    if (!els.mealTypeFilter) return;
+    const selected = els.mealTypeFilter.value;
+    const standard = ["Breakfast", "Lunch", "Evening snack", "Dinner", "Snack", "Custom"];
+    const customOptions = state.customMealTypes.filter((name) => !standard.includes(name));
+    els.mealTypeFilter.innerHTML = [
+      "<option value=\"\">All meals</option>",
+      ...standard.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`),
+      ...customOptions.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`)
+    ].join("");
+    els.mealTypeFilter.value = ["", ...standard, ...customOptions].includes(selected) ? selected : "";
+    state.mealTypeFilter = els.mealTypeFilter.value;
+  }
+
   function renderDashboard() {
     const { user, totals, days, recentMeals } = state.dashboard;
     els.profileName.textContent = user.displayName;
@@ -93,11 +127,13 @@
     els.totalProtein.textContent = `${round1(totals.protein)}g`;
     els.totalCarbs.textContent = `${round1(totals.carbs)}g`;
     els.totalFat.textContent = `${round1(totals.fat)}g`;
+    if (els.activeDays) els.activeDays.textContent = days.length;
+    if (els.savedMealCount) els.savedMealCount.textContent = days.reduce((sum, day) => sum + Number(day.mealCount || 0), 0);
     setBar(els.proteinBar, totals.protein, GOALS.protein);
     setBar(els.carbBar, totals.carbs, GOALS.carbs);
     setBar(els.fatBar, totals.fat, GOALS.fat);
     renderCalendar(days);
-    renderMeals(recentMeals, "Recent meals");
+    renderMeals(filteredMeals(recentMeals), currentMealListLabel("Recent meals"));
   }
 
   function renderCalendar(days) {
@@ -119,18 +155,52 @@
 
   async function selectDate(date) {
     state.selectedDate = date;
-    els.mealListLabel.textContent = `Meals saved on ${formatDate(date)}.`;
+    els.mealListLabel.textContent = currentMealListLabel(`Meals saved on ${formatDate(date)}`);
     els.mealList.innerHTML = "<p class=\"warning\">Loading meals...</p>";
     try {
       const start = `${date}T00:00:00`;
       const end = `${date}T23:59:59`;
-      const response = await fetchWithAccess(`/api/users/me/meals?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`, { cache: "no-store" });
+      const params = new URLSearchParams({ start, end });
+      if (state.mealTypeFilter) params.set("mealType", state.mealTypeFilter);
+      const response = await fetchWithAccess(`/api/users/me/meals?${params.toString()}`, { cache: "no-store" });
       const meals = await response.json();
       if (!response.ok) throw new Error(meals.error || "Unable to load meals.");
-      renderMeals(meals, `Meals saved on ${formatDate(date)}`);
+      renderMeals(meals, currentMealListLabel(`Meals saved on ${formatDate(date)}`));
     } catch (error) {
       els.mealList.innerHTML = `<p class="warning">${escapeHtml(error.message)}</p>`;
     }
+  }
+
+  async function changeMealTypeFilter() {
+    state.mealTypeFilter = els.mealTypeFilter.value;
+    if (state.selectedDate) {
+      selectDate(state.selectedDate);
+      return;
+    }
+    if (!state.mealTypeFilter) {
+      renderDashboard();
+      return;
+    }
+    els.mealListLabel.textContent = currentMealListLabel("Saved meals");
+    els.mealList.innerHTML = "<p class=\"warning\">Loading meals...</p>";
+    try {
+      const params = new URLSearchParams({ mealType: state.mealTypeFilter });
+      const response = await fetchWithAccess(`/api/users/me/meals?${params.toString()}`, { cache: "no-store" });
+      const meals = await response.json();
+      if (!response.ok) throw new Error(meals.error || "Unable to load meals.");
+      renderMeals(meals, currentMealListLabel("Saved meals"));
+    } catch (error) {
+      els.mealList.innerHTML = `<p class="warning">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  function filteredMeals(meals) {
+    if (!state.mealTypeFilter) return meals;
+    return meals.filter((meal) => meal.mealType === state.mealTypeFilter);
+  }
+
+  function currentMealListLabel(baseLabel) {
+    return state.mealTypeFilter ? `${baseLabel} - ${state.mealTypeFilter}` : baseLabel;
   }
 
   function renderMeals(meals, label) {

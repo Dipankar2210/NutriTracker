@@ -2,11 +2,13 @@
 
 NutriTracker is an application concept for people who want to understand what is in their meals by uploading a photo of their plate.
 
-Users can upload or take a meal picture, review detected food items, adjust quantities, and see estimated nutrition totals.
+Guests can upload or take a meal picture, manually add food items, adjust quantities, and see estimated nutrition totals. Registered users can sign in to use AI photo scanning, save reviewed meals, and view dashboard history.
+
+The app should also work as a Progressive Web App so mobile users can install it from a browser and use a cached app shell for the main screens.
 
 The intended post-upload layout should follow the reference in `source/sample.png`: a nutrition dashboard with summary totals, target progress, and detailed nutrient tables after the image has been analyzed.
 
-For the early MVP, users are created by an admin. The admin personally shares a first-time setup magic link so the user can create a password. After setup, the user logs in to access their own profile, save meals, and review history. Automatic registration can be added later.
+For the early MVP, users are created by an admin. The admin personally shares a first-time setup magic link so the user can create a password. After setup, the user logs in to access AI photo scanning, their own profile, saved meals, and review history. Automatic registration can be added later.
 
 ## Target Audience
 
@@ -18,13 +20,13 @@ This app is for men and women ages 18-60 who want a simple way to track meals an
 2. Admin shares a user-specific setup magic link.
 3. User opens the magic link, creates a password, and confirms the password.
 4. The app redirects the user to login.
-5. User logs in and accesses their profile.
-6. User uploads a meal photo.
-7. The app uses AI vision to detect food items on the plate.
+5. Guests can use the home page to upload a meal photo and manually add food items for estimated nutrition.
+6. User logs in and accesses their profile.
+7. Signed-in users can upload a meal photo and use AI vision to detect food items on the plate.
 8. The app estimates quantity or portion size when possible.
 9. The user can manually correct food names and quantities.
 10. The app shows nutrition totals for the full meal.
-11. The user saves the reviewed meal by date and meal type.
+11. The signed-in user saves the reviewed meal by date and meal type.
 12. The profile dashboard shows daily calories, macros, and saved meals.
 
 ## User Onboarding
@@ -53,7 +55,8 @@ The app should have a simple login page used by both admins and normal users.
 - Normal users log in after completing password setup from their first-time magic link.
 - Supported roles are `admin` and `user`.
 - Admins can create users, view users, update basic profile fields, rotate setup links, and assign admin access to another active user.
-- Normal users can add meals, review detected food, save meals, view calendar history, view meal details, and unsubscribe.
+- Guests can manually estimate a meal from backend food reference data, but cannot use AI photo scanning or save meals.
+- Normal users can use AI photo scanning, add meals, review detected food, save meals, view calendar history, view meal details, and unsubscribe.
 - Admin features must not appear in the normal user dashboard.
 - Normal users must not call admin APIs successfully.
 - Unsubscribing should soft-delete or disable the user account instead of immediately hard deleting records.
@@ -76,6 +79,18 @@ The profile dashboard should include:
 
 The dashboard should be read-first. Editing saved meals can be added after the viewing and filtering flow is stable.
 
+## Progressive Web App
+
+NutriTracker includes a basic PWA setup for mobile use:
+
+- `manifest.webmanifest` defines the installable app name, theme color, start URL, icons, and shortcuts.
+- `service-worker.js` caches the static app shell for core pages and assets.
+- `pwa.js` registers the service worker on supported browsers.
+- HTML pages include mobile theme metadata and manifest/icon links.
+- API responses and user health data should not be cached by the service worker.
+- New pages should include the same manifest and `pwa.js` registration.
+- Controls should remain tap-friendly with mobile-sized inputs and buttons.
+
 ## Post-Upload Result Screen
 
 After a picture is uploaded, the app should show a result screen similar to `source/sample.png`.
@@ -90,8 +105,12 @@ The screen should include:
 - Option to add missing food items.
 - Option to remove incorrect detected items.
 - Meal type selector, such as breakfast, lunch, dinner, snack, or custom.
+- When a signed-in user selects custom, ask for a custom meal name and save that name only for that user.
 - Meal date and time.
 - Nutrition summary for the full meal.
+- Nutrition totals should be calculated from stored food reference values and reviewed measurements, not from AI-provided nutrition values.
+- Users should be able to override AI quantity estimates with exact measurements such as grams before saving.
+- If a food cannot be matched, the user can choose a nearest database match, enter nutrition manually, or explicitly save that item without nutrition values. Unknown-nutrition items stay in the meal record but are excluded from totals.
 - Daily target progress where goals exist.
 - Detailed nutrient table grouped by useful categories.
 - Clear estimate warning because AI and nutrition calculations may be imperfect.
@@ -187,6 +206,8 @@ No personal user information, health data, or uploaded photo URLs should be writ
 - Let users open saved meal details from the dashboard.
 - Let users unsubscribe, which soft-deletes or disables their account.
 - Label meals by time of day, such as breakfast, lunch, dinner, snack, or custom.
+- Keep user-created custom meal labels user-scoped. A custom label created by one user should not appear in another user's options or dashboard filters.
+- Do not silently save unresolved placeholder foods. Ask the user to select a database food, enter manual nutrition, or explicitly save the item as unknown nutrition.
 - Show confidence levels for automatic detection.
 - Clearly explain that nutrition values are estimates.
 
@@ -302,6 +323,14 @@ This app should not provide medical advice. Users with medical conditions should
 - createdAt
 - revokedAt
 
+### User Meal Type
+
+- id
+- userId
+- name
+- createdAt
+- updatedAt
+
 ### Admin User
 
 - id
@@ -320,6 +349,7 @@ This app should not provide medical advice. Users with medical conditions should
 - userId
 - photoUrl
 - mealType
+- customMealTypeName, accepted at save time when the user selects custom
 - eatenAt
 - analysisStatus
 - estimateWarning
@@ -465,6 +495,8 @@ Profile and meal history views should always filter by the current authenticated
 ## Development Status
 
 Early MVP implementation. The project has a local Node.js server, SQLite-backed meal storage, food reference data, and frontend screens for meal analysis and history. Admin-created users and magic-link dashboard access exist in an early form, but the next auth step is to add login, first-time password setup, roles, permissions, and unsubscribe soft delete.
+
+Current PWA assets are static and framework-free: `manifest.webmanifest`, `service-worker.js`, `pwa.js`, and `icons/nutritracker-icon.svg`.
 
 ## Privacy and Safety
 

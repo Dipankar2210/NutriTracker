@@ -4,18 +4,21 @@ const path = require("node:path");
 const mealsDb = require("../backend/db/database");
 
 const root = path.resolve(__dirname, "..");
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.PORT || 3001);
 loadEnv(path.join(root, ".env"));
 
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
-  ".webp": "image/webp"
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml; charset=utf-8"
 };
 
 const server = http.createServer((request, response) => {
@@ -190,6 +193,12 @@ function readJsonBody(request, maxBytes = 9 * 1024 * 1024) {
 
 async function handleAnalyze(request, response) {
   try {
+    const session = currentSession(request, new URL(request.url, `http://${request.headers.host}`));
+    if (!session) {
+      sendJson(response, 401, { error: "Login is required for AI photo analysis." });
+      return;
+    }
+
     const body = await readJsonBody(request);
     if (!body.imageDataUrl || !String(body.imageDataUrl).startsWith("data:image/")) {
       sendJson(response, 400, { error: "Upload a valid image first." });
@@ -372,6 +381,11 @@ function handleCurrentUser(request, response, url) {
       end: url.searchParams.get("end") || ""
     });
     sendJson(response, 200, dashboard);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/users/me/meal-types") {
+    sendJson(response, 200, mealsDb.listUserMealTypes(session.user.id));
     return;
   }
 

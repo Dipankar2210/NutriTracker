@@ -3,22 +3,37 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17764a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NutriTracker" />
     <title>NutriTracker MVP</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/nutritracker-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/nutritracker-icon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app-shell">
-      <section class="topbar">
+      <section class="topbar home-hero">
         <div class="brand-intro">
           <p class="eyebrow">Meal nutrition tracker</p>
           <h1>NutriTracker</h1>
-          <p class="brand-copy">Upload a meal photo, check the detected foods, and understand estimated calories, protein, carbs, fat, and key nutrients before saving your meal record.</p>
-          <p class="estimate-note">Review meal estimates before saving. Nutrition values are estimates unless verified by trusted package or nutrition database data.</p>
+          <p class="brand-copy" id="homeIntro">Upload a meal photo, add foods manually, and understand estimated calories, protein, carbs, fat, and key nutrients.</p>
+          <p class="estimate-note" id="homeAccessNote">Guests can estimate nutrition manually. Registered users can sign in for AI photo scanning, saved meals, and dashboard history.</p>
+          <div class="hero-pills" aria-label="Available features">
+            <span id="homePillOne">Manual nutrition lookup</span>
+            <span id="homePillTwo">AI scan after sign-in</span>
+            <span id="homePillThree">Saved dashboard for users</span>
+          </div>
         </div>
         <div class="top-actions">
-          <a class="secondary link-button" href="login.html">Login</a>
-          <a class="secondary link-button" href="admin.html">Admin</a>
-          <a class="secondary link-button" href="profile.html" id="profileLink">Profile</a>
+          <a class="signin-link" href="login.html" id="loginLink">
+            <span>Sign in</span>
+            <small>AI scan and dashboard</small>
+          </a>
+          <a class="secondary link-button" href="admin.html" id="adminLink" hidden>Admin</a>
+          <a class="secondary link-button" href="profile.html" id="profileLink" hidden>Dashboard</a>
+          <button class="secondary" id="logoutButton" type="button" hidden>Logout</button>
           <div class="status-pill" id="referenceStatus">Preparing nutrition data</div>
         </div>
       </section>
@@ -30,23 +45,24 @@
         </div>
         <div>
           <strong>2. Review</strong>
-          <span>Confirm foods, quantities, location, and city.</span>
+          <span>Add foods manually as a guest, or sign in to use AI photo scanning.</span>
         </div>
         <div>
           <strong>3. Save</strong>
-          <span>Store the reviewed meal by date and meal type.</span>
+          <span>Registered users can store reviewed meals by date and meal type.</span>
         </div>
       </section>
 
-      <section class="upload-panel" id="uploadPanel">
+      <section class="upload-panel home-upload" id="uploadPanel">
         <div class="upload-copy">
-          <h2>Upload a meal photo</h2>
-          <p>Nutrition values are estimates. Correct the food items and quantities before saving.</p>
+          <h2>Start a meal estimate</h2>
+          <p id="uploadModeCopy">Nutrition values are estimates. Guests can manually add food items; signed-in users can also run AI photo analysis.</p>
         </div>
         <label class="dropzone" for="photoInput">
           <span class="dropzone-icon">+</span>
-          <span>Choose meal photo</span>
-          <small>PNG, JPG, or WebP</small>
+          <strong>Choose meal photo</strong>
+          <small>Use as a visual reference, then add foods manually</small>
+          <em>PNG, JPG, or WebP</em>
         </label>
         <input id="photoInput" type="file" accept="image/*" />
       </section>
@@ -58,12 +74,17 @@
             <label>
               Meal type
               <select id="mealType">
-                <option>Breakfast</option>
-                <option selected>Lunch</option>
-                <option>Dinner</option>
-                <option>Snack</option>
-                <option>Custom</option>
+                <option value="Breakfast">Breakfast</option>
+                <option value="Lunch">Lunch</option>
+                <option value="Evening snack">Evening snack</option>
+                <option value="Dinner">Dinner</option>
+                <option value="Snack">Snack</option>
+                <option value="Custom">Custom</option>
               </select>
+            </label>
+            <label id="customMealTypeWrap" hidden>
+              Custom meal name
+              <input id="customMealTypeName" type="text" maxlength="40" placeholder="Example: Pre-workout meal" />
             </label>
             <label>
               Date and time
@@ -85,7 +106,7 @@
             </label>
           </div>
           <button class="primary" id="analyzeButton">Analyze photo</button>
-          <p class="warning">The app checks the photo and estimates visible foods. Review every item before saving.</p>
+          <p class="warning">AI photo analysis and meal saving require sign-in. Manual food entry is available to guests.</p>
         </aside>
 
         <section class="dashboard">
@@ -208,6 +229,7 @@
       </section>
     </main>
 
+    <script src="pwa.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

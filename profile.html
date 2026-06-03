@@ -3,14 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17764a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NutriTracker" />
     <title>NutriTracker Profile</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/nutritracker-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/nutritracker-icon.svg" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app-shell">
-      <section class="topbar">
+      <section class="topbar profile-hero">
         <div class="brand-intro">
-          <p class="eyebrow">User profile</p>
+          <p class="eyebrow">Nutrition dashboard</p>
           <h1 id="profileName">NutriTracker profile</h1>
           <p class="brand-copy" id="profileSummary">Log in to view saved calories, meal dates, and reviewed meal details.</p>
           <p class="estimate-note">Nutrition values are estimates unless verified by trusted package or nutrition database data.</p>
@@ -23,7 +29,7 @@
         </div>
       </section>
 
-      <section class="summary-grid profile-summary">
+      <section class="summary-grid profile-summary dashboard-kpis">
         <article class="summary-card calories">
           <span>Saved calories</span>
           <strong id="totalCalories">0</strong>
@@ -44,27 +50,51 @@
           <strong id="totalFat">0g</strong>
           <div class="bar red"><i id="fatBar"></i></div>
         </article>
+        <article class="summary-card">
+          <span>Active days</span>
+          <strong id="activeDays">0</strong>
+          <small>with reviewed meals</small>
+        </article>
+        <article class="summary-card">
+          <span>Saved meals</span>
+          <strong id="savedMealCount">0</strong>
+          <small>total records</small>
+        </article>
       </section>
 
-      <section class="dashboard-panel">
-        <div class="section-head">
-          <div>
-            <h2>Calendar view</h2>
-            <p id="dashboardMessage">Loading dashboard...</p>
+      <section class="dashboard-workspace">
+        <section class="dashboard-panel">
+          <div class="section-head">
+            <div>
+              <h2>Calendar view</h2>
+              <p id="dashboardMessage">Loading dashboard...</p>
+            </div>
+            <button class="secondary" id="refreshDashboardButton">Refresh</button>
           </div>
-          <button class="secondary" id="refreshDashboardButton">Refresh</button>
-        </div>
-        <div id="calendarList" class="calendar-list"></div>
-      </section>
+          <div id="calendarList" class="calendar-list"></div>
+        </section>
 
-      <section class="history-panel">
-        <div class="section-head">
-          <div>
-            <h2>Saved meals</h2>
-            <p id="mealListLabel">Select a date or open a meal.</p>
+        <section class="history-panel dashboard-meals-panel">
+          <div class="section-head">
+            <div>
+              <h2>Saved meals</h2>
+              <p id="mealListLabel">Select a date or open a meal.</p>
+            </div>
+            <label class="inline-filter">
+              Meal time
+              <select id="mealTypeFilter">
+                <option value="">All meals</option>
+                <option value="Breakfast">Breakfast</option>
+                <option value="Lunch">Lunch</option>
+                <option value="Evening snack">Evening snack</option>
+                <option value="Dinner">Dinner</option>
+                <option value="Snack">Snack</option>
+                <option value="Custom">Custom</option>
+              </select>
+            </label>
           </div>
-        </div>
-        <div id="mealList" class="history-list"></div>
+          <div id="mealList" class="history-list"></div>
+        </section>
       </section>
 
       <section class="dashboard-panel" id="mealDetailPanel" hidden>
@@ -78,6 +108,7 @@
       </section>
     </main>
 
+    <script src="pwa.js"></script>
     <script src="profile.js"></script>
   </body>
 </html>

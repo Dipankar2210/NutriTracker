@@ -365,6 +365,7 @@ function createMeal(input) {
   const meal = normalizeMealInput(input, id, now, now);
 
   const transaction = db.transaction(() => {
+    persistCustomMealType(input, meal, now);
     insertMeal(meal);
     insertMealItems(meal.id, meal.items, now);
     if (input.aiDetectionResult) insertAiDetectionResult(meal.id, input.aiDetectionResult, now);
@@ -424,6 +425,7 @@ function updateMeal(id, input) {
 
   const transaction = db.transaction(() => {
     db.prepare("DELETE FROM meal_items WHERE meal_id = ?").run(id);
+    persistCustomMealType(input, meal, now);
     updateMealRow(meal);
     insertMealItems(meal.id, meal.items, now);
     if (input.aiDetectionResult) insertAiDetectionResult(meal.id, input.aiDetectionResult, now);
@@ -585,6 +587,41 @@ function closeDatabase() {
   db.close();
 }
 
+function listUserMealTypes(userId) {
+  if (!userId) return [];
+  return db.prepare(`
+    SELECT name
+    FROM user_meal_types
+    WHERE user_id = ?
+    ORDER BY lower(name) ASC
+  `).all(userId).map((row) => row.name);
+}
+
+function persistCustomMealType(input, meal, now = new Date().toISOString()) {
+  if (!meal.userId) return;
+  const name = normalizeCustomMealTypeName(input.customMealTypeName);
+  if (!name) return;
+  meal.mealType = name;
+  db.prepare(`
+    INSERT INTO user_meal_types (id, user_id, name, created_at, updated_at)
+    VALUES (@id, @userId, @name, @createdAt, @updatedAt)
+    ON CONFLICT(user_id, name) DO UPDATE SET updated_at = excluded.updated_at
+  `).run({
+    id: crypto.randomUUID(),
+    userId: meal.userId,
+    name,
+    createdAt: now,
+    updatedAt: now
+  });
+}
+
+function normalizeCustomMealTypeName(value) {
+  const name = String(value || "").trim().replace(/\s+/g, " ");
+  if (!name) return "";
+  if (name.length > 40) throw new Error("Custom meal type name must be 40 characters or fewer.");
+  return name;
+}
+
 function normalizeMealInput(input, id, createdAt, updatedAt) {
   if (!input || !Array.isArray(input.items) || input.items.length === 0) {
     throw new Error("At least one reviewed meal item is required.");
@@ -624,6 +661,7 @@ function normalizeMealItem(item) {
     sourceName: stringOrNull(item.sourceName),
     base,
     manualEntry: Boolean(item.manualEntry),
+    nutritionUnknown: Boolean(item.nutritionUnknown),
     unsupportedUnit: Boolean(item.unsupportedUnit),
     portionSize: stringOrNull(item.portionSize),
     gramsPerUnit: item.gramsPerUnit === null || item.gramsPerUnit === undefined ? null : number(item.gramsPerUnit, null),
@@ -740,13 +778,13 @@ function insertMealItems(mealId, items, now) {
     INSERT INTO meal_items (
       id, meal_id, food_name, quantity, unit, confidence_score, ai_detected,
       portion_size, grams_per_unit, total_grams, nutrition_basis, needs_user_review,
-      portion_estimate_mode, diameter_value, diameter_unit, thickness, uncertainty_note,
+      nutrition_unknown, portion_estimate_mode, diameter_value, diameter_unit, thickness, uncertainty_note,
       source_name, base_json, calories, protein, carbs, fat, fiber, sugar, sodium,
       cholesterol, saturated_fat, potassium, calcium, iron, vitamin_c, created_at, updated_at
     ) VALUES (
       @id, @mealId, @foodName, @quantity, @unit, @confidence, @aiDetected,
       @portionSize, @gramsPerUnit, @totalGrams, @nutritionBasis, @needsUserReview,
-      @portionEstimateMode, @diameterValue, @diameterUnit, @thickness, @uncertaintyNote,
+      @nutritionUnknown, @portionEstimateMode, @diameterValue, @diameterUnit, @thickness, @uncertaintyNote,
       @sourceName, @baseJson, @calories, @protein, @carbs, @fat, @fiber, @sugar,
       @sodium, @cholesterol, @saturatedFat, @potassium, @calcium, @iron, @vitaminC,
       @createdAt, @updatedAt
@@ -770,6 +808,7 @@ function insertMealItems(mealId, items, now) {
       diameterUnit: item.diameterUnit,
       thickness: item.thickness,
       needsUserReview: item.needsUserReview,
+      nutritionUnknown: item.nutritionUnknown ? 1 : 0,
       uncertaintyNote: item.uncertaintyNote,
       sourceName: item.sourceName,
       baseJson: item.base ? JSON.stringify(item.base) : null,
@@ -891,6 +930,7 @@ function hydrateMealItem(row) {
     uncertaintyNote: row.uncertainty_note || "",
     manualEntry: row.ai_detected === 0,
     needsUserReview: row.needs_user_review === 1,
+    nutritionUnknown: row.nutrition_unknown === 1,
     unsupportedUnit: parsed.unsupportedUnit || false,
     portionSize: row.portion_size || "",
     gramsPerUnit: row.grams_per_unit,
@@ -1140,7 +1180,8 @@ function ensureMealItemColumns() {
     ["portion_estimate_mode", "TEXT"],
     ["diameter_value", "REAL"],
     ["diameter_unit", "TEXT"],
-    ["thickness", "TEXT"]
+    ["thickness", "TEXT"],
+    ["nutrition_unknown", "INTEGER NOT NULL DEFAULT 0"]
   ];
   addMissingColumns("meal_items", columns);
 }
@@ -2370,6 +2411,7 @@ module.exports = {
   unsubscribeUser,
   getUserGoals,
   getUserDashboard,
+  listUserMealTypes,
   createMeal,
   listMeals,
   getMeal,

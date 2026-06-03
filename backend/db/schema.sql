@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS user_goals (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS user_meal_types (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(user_id, name),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS meals (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -114,6 +124,7 @@ CREATE TABLE IF NOT EXISTS meal_items (
   confidence_score REAL,
   ai_detected INTEGER NOT NULL DEFAULT 0,
   needs_user_review INTEGER NOT NULL DEFAULT 0,
+  nutrition_unknown INTEGER NOT NULL DEFAULT 0,
   uncertainty_note TEXT,
   source_name TEXT,
   base_json TEXT,
@@ -305,6 +316,7 @@ CREATE INDEX IF NOT EXISTS idx_meals_user_eaten_at ON meals(user_id, eaten_at DE
 CREATE INDEX IF NOT EXISTS idx_meal_items_meal_id ON meal_items(meal_id);
 CREATE INDEX IF NOT EXISTS idx_user_access_tokens_user ON user_access_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+CREATE INDEX IF NOT EXISTS idx_user_meal_types_user ON user_meal_types(user_id, name);
 CREATE INDEX IF NOT EXISTS idx_food_nutrition_name ON food_nutrition_references(food_name);
 CREATE INDEX IF NOT EXISTS idx_food_aliases_alias ON food_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_regions_country ON regions(country_id);

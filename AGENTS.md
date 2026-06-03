@@ -8,7 +8,8 @@
 
 ## Product Goals
 - Let users upload or take a picture of any meal.
-- Use AI vision after upload to detect visible food items on the plate.
+- Let guest users upload a meal picture and manually add food items to estimate nutrition.
+- Require login before using AI vision to detect visible food items on the plate.
 - Use AI to estimate portions or quantities automatically when possible.
 - Let users manually edit food items and quantities.
 - Show nutrition totals and per-item nutrition details.
@@ -17,6 +18,7 @@
 - Let an admin create user accounts during the early MVP.
 - Let users access the app through a personally shared magic link.
 - Give each user a profile dashboard with calendar-based meal and calorie history.
+- Support Progressive Web App behavior so the app can be installed from mobile browsers and feel usable on phones.
 
 ## User Onboarding and Access
 - MVP onboarding is admin-led. An admin creates the user profile before the user starts using the app.
@@ -36,7 +38,8 @@
 - Supported roles are `admin` and `user`.
 - Admin users can log in, access the admin area, create users, view users, update profile basics, rotate setup links, and promote or demote other users when allowed.
 - A default first admin credential may be seeded for local first-time setup, but it must be clearly marked as temporary and changeable.
-- Normal users can add meals, review and save meal nutrition, view their own calendar dashboard, view meal details, update their own profile basics where supported, and unsubscribe from the app.
+- Guest users can manually estimate nutrition from uploaded meal photos and backend food reference data, but cannot use AI vision, save meals, or access dashboards.
+- Normal users can use AI vision, add meals, review and save meal nutrition, view their own calendar dashboard, view meal details, update their own profile basics where supported, and unsubscribe from the app.
 - Normal users must not access admin pages or admin APIs.
 - Admin-only controls must never be exposed in the normal user dashboard.
 - Role changes must be made only by an authenticated admin.
@@ -70,14 +73,19 @@
 - Show detected food items with estimated quantities, confidence levels, and edit controls.
 - If an item or quantity is unclear, clearly mark it as low confidence and ask the user to confirm or update it manually.
 - Let users add missing items, remove incorrect items, and adjust quantity or unit before saving.
-- Save only the reviewed or corrected meal record.
+- Save only the reviewed or corrected meal record for authenticated users.
 
 ## AI Meal Detection Flow
-- The upload flow must call an AI vision model or food-recognition service to inspect the meal photo.
+- The guest upload flow should allow manual food entry from backend food reference data without saving the meal.
+- The signed-in upload flow must call an AI vision model or food-recognition service to inspect the meal photo.
 - The AI result should include food name, estimated quantity, unit, confidence score, and any uncertainty notes.
 - Do not treat AI results as final. The user must be able to review and correct them.
 - If AI cannot identify an item confidently, show an editable placeholder instead of silently dropping it.
 - Nutrition totals should recalculate when the user edits food items or quantities.
+- Saved nutrition totals must be calculated from stored food reference values and the user's reviewed measurement, not from AI-provided nutrition numbers.
+- If AI detects a food differently across uploads, the user must be able to choose the correct database food and exact measurement such as grams before saving.
+- Do not silently save unresolved items. Before saving, the user must choose a database match, enter manual nutrition values, or explicitly save the item as unknown nutrition.
+- Items saved as unknown nutrition must remain in the meal record but be excluded from calorie and nutrient totals.
 - Always label nutrition totals as estimates unless they come from verified package data or a trusted nutrition database.
 
 ## Food Reference Table
@@ -108,6 +116,8 @@
 
 ## Additional User Features
 - Meal time labels, such as breakfast, lunch, dinner, snack, or custom.
+- If a signed-in user selects a custom meal type, ask for a custom meal name and save it only for that user.
+- User-specific custom meal names should appear in that user's future meal type options and dashboard filters, but never for other users.
 - Daily nutrition summary.
 - Meal history with photos.
 - Nutrition goals and progress.
@@ -122,12 +132,15 @@
 - Role-based access for admin and normal users.
 - Calendar-based profile dashboard for saved meals and calories.
 - User unsubscribe flow that triggers a soft delete of that user's account data.
+- PWA install support with a web app manifest, service worker, mobile theme metadata, and offline shell caching for static app assets.
 
 ## Data Saving Requirements
 - Save every reviewed meal against the correct authenticated user.
 - Save meals date wise using the date and time the meal was eaten or uploaded.
 - Save meals meal wise using a meal type such as breakfast, lunch, dinner, snack, or custom.
+- Store user-defined custom meal type names in user-scoped data, not as global meal type options.
 - Store the final user-reviewed food items, quantities, and nutrition totals.
+- Store calculation details such as reviewed unit, total grams, grams per unit, and nutrition basis where available so repeated calculations are auditable.
 - Keep the original AI detection result when useful for audit or review, but do not expose it as verified truth.
 - Allow users to update a saved meal later and recalculate totals after changes.
 - When a registered user saves a reviewed meal that is not represented in `foodtable.md`, queue a new food-table candidate entry with the user's provided location.
@@ -158,6 +171,7 @@
 - Check `foodtable.md` before adding new food or meal reference data.
 - Keep user-scoped data isolated when adding profile, dashboard, and magic-link features.
 - Make admin-created users, first-time setup links, and password login easy to replace with stronger auth later.
+- Keep PWA/mobile support working when adding new pages by linking the manifest, registering the service worker, and preserving responsive tap-friendly controls.
 
 ## Don't
 - Install new dependencies without asking.

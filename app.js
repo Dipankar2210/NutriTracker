@@ -129,7 +129,10 @@
     history: [],
     currentMealId: null,
     sessionToken: "",
-    currentUser: null
+    currentUser: null,
+    memberMode: false,
+    mealTypeManuallySelected: false,
+    customMealTypes: []
   };
 
   const els = {};
@@ -152,11 +155,19 @@
   function bindElements() {
     [
       "referenceStatus",
+      "homeIntro",
+      "homeAccessNote",
+      "homePillOne",
+      "homePillTwo",
+      "homePillThree",
+      "uploadModeCopy",
       "photoInput",
       "uploadPanel",
       "workspace",
       "mealPreview",
       "mealType",
+      "customMealTypeWrap",
+      "customMealTypeName",
       "mealTime",
       "userLocation",
       "locationSuggestions",
@@ -187,16 +198,27 @@
       "saveMessage",
       "historyList",
       "clearHistoryButton",
-      "profileLink"
+      "loginLink",
+      "adminLink",
+      "profileLink",
+      "logoutButton"
     ].forEach((id) => {
       els[id] = document.getElementById(id);
     });
   }
 
   function initSessionAccess() {
+    const params = new URLSearchParams(window.location.search);
+    state.memberMode = params.get("member") === "1";
+    if (!state.memberMode) {
+      state.sessionToken = "";
+      state.currentUser = null;
+      renderAccessState();
+      return;
+    }
     state.sessionToken = localStorage.getItem("nutritracker.sessionToken") || "";
     if (!state.sessionToken) {
-      window.location.href = "login.html";
+      renderAccessState();
       return;
     }
     loadCurrentUser();
@@ -208,14 +230,50 @@
       if (!response.ok) throw new Error("User profile unavailable.");
       const payload = await response.json();
       state.currentUser = payload.user;
-      if (els.referenceStatus) {
-        els.referenceStatus.textContent = `${state.currentUser.displayName} profile active`;
-      }
+      renderAccessState(payload.role);
+      await loadUserMealTypes();
     } catch {
       state.currentUser = null;
       localStorage.removeItem("nutritracker.sessionToken");
       state.sessionToken = "";
-      window.location.href = "login.html";
+      renderAccessState();
+    }
+  }
+
+  function renderAccessState(role = "") {
+    const isLoggedIn = Boolean(state.currentUser && state.sessionToken);
+    if (els.loginLink) els.loginLink.hidden = isLoggedIn;
+    if (els.profileLink) els.profileLink.hidden = !isLoggedIn;
+    if (els.adminLink) els.adminLink.hidden = role !== "admin";
+    if (els.logoutButton) els.logoutButton.hidden = !isLoggedIn;
+    if (els.saveMealButton) {
+      els.saveMealButton.textContent = isLoggedIn ? "Save reviewed meal" : "Login to save meal";
+    }
+    if (els.referenceStatus) {
+      els.referenceStatus.textContent = isLoggedIn
+        ? `${state.currentUser.displayName} profile active`
+        : "Guest estimate mode";
+    }
+    if (els.homeIntro) {
+      els.homeIntro.textContent = isLoggedIn
+        ? "Use AI photo scanning, review detected foods, and save corrected nutrition estimates to your dashboard."
+        : "Upload a meal photo, add foods manually, and understand estimated calories, protein, carbs, fat, and key nutrients.";
+    }
+    if (els.homeAccessNote) {
+      els.homeAccessNote.textContent = isLoggedIn
+        ? "You are signed in. AI photo scanning and meal saving are available for this account."
+        : "Guests can estimate nutrition manually. Registered users can sign in for AI photo scanning, saved meals, and dashboard history.";
+    }
+    if (els.homePillOne) els.homePillOne.textContent = isLoggedIn ? "AI photo scan enabled" : "Manual nutrition lookup";
+    if (els.homePillTwo) els.homePillTwo.textContent = isLoggedIn ? "Save reviewed meals" : "AI scan after sign-in";
+    if (els.homePillThree) els.homePillThree.textContent = isLoggedIn ? "Dashboard history" : "Saved dashboard for users";
+    if (els.uploadModeCopy) {
+      els.uploadModeCopy.textContent = isLoggedIn
+        ? "Upload a meal photo to use AI scanning, then review or correct the detected food items before saving."
+        : "Nutrition values are estimates. Guests can manually add food items; signed-in users can also run AI photo analysis.";
+    }
+    if (els.saveMessage && !isLoggedIn) {
+      els.saveMessage.textContent = "Guests can estimate nutrition here. Log in to save meals and history.";
     }
   }
 
@@ -228,7 +286,16 @@
   function bindEvents() {
     els.photoInput.addEventListener("change", handlePhotoUpload);
     els.userLocation.addEventListener("change", handleLocationChange);
-    els.userCity.addEventListener("change", analyzeCurrentPhoto);
+    els.userCity.addEventListener("change", () => {
+      if (canUseAiVision()) analyzeCurrentPhoto();
+    });
+    els.mealTime.addEventListener("change", () => {
+      if (!state.mealTypeManuallySelected) applyMealTypeFromTime();
+    });
+    els.mealType.addEventListener("change", () => {
+      state.mealTypeManuallySelected = true;
+      updateCustomMealTypeInput();
+    });
     els.analyzeButton.addEventListener("click", analyzeCurrentPhoto);
     els.addItemButton.addEventListener("click", () => {
       state.manualDraft = createManualAddedItem();
@@ -239,12 +306,78 @@
     els.cancelAddItemButton.addEventListener("click", cancelManualDraft);
     els.saveMealButton.addEventListener("click", saveReviewedMeal);
     els.clearHistoryButton.addEventListener("click", clearHistory);
+    if (els.logoutButton) els.logoutButton.addEventListener("click", logout);
+  }
+
+  async function logout() {
+    const token = state.sessionToken;
+    state.sessionToken = "";
+    state.currentUser = null;
+    localStorage.removeItem("nutritracker.sessionToken");
+    renderAccessState();
+    state.customMealTypes = [];
+    renderMealTypeOptions();
+    if (token) {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "X-Auth-Token": token }
+      }).catch(() => null);
+    }
   }
 
   function setDefaultTime() {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     els.mealTime.value = now.toISOString().slice(0, 16);
+    applyMealTypeFromTime();
+  }
+
+  function applyMealTypeFromTime() {
+    els.mealType.value = mealTypeForTime(els.mealTime.value);
+    updateCustomMealTypeInput();
+  }
+
+  function mealTypeForTime(value) {
+    const date = value ? new Date(value) : new Date();
+    const hour = Number.isNaN(date.getTime()) ? new Date().getHours() : date.getHours();
+    if (hour >= 5 && hour < 11) return "Breakfast";
+    if (hour >= 11 && hour < 15) return "Lunch";
+    if (hour >= 15 && hour < 18) return "Evening snack";
+    if (hour >= 18 && hour < 23) return "Dinner";
+    return "Snack";
+  }
+
+  async function loadUserMealTypes() {
+    try {
+      const response = await fetchWithAccess("/api/users/me/meal-types", { cache: "no-store" });
+      const mealTypes = await response.json();
+      if (!response.ok) throw new Error(mealTypes.error || "Unable to load custom meal types.");
+      state.customMealTypes = Array.isArray(mealTypes) ? mealTypes : [];
+      renderMealTypeOptions();
+    } catch {
+      state.customMealTypes = [];
+      renderMealTypeOptions();
+    }
+  }
+
+  function renderMealTypeOptions() {
+    const selected = els.mealType.value || mealTypeForTime(els.mealTime.value);
+    const standard = ["Breakfast", "Lunch", "Evening snack", "Dinner", "Snack"];
+    const customOptions = state.customMealTypes.filter((name) => !standard.includes(name));
+    els.mealType.innerHTML = [
+      ...standard.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`),
+      ...customOptions.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`),
+      "<option value=\"Custom\">Custom...</option>"
+    ].join("");
+    els.mealType.value = [...standard, ...customOptions, "Custom"].includes(selected) ? selected : mealTypeForTime(els.mealTime.value);
+    updateCustomMealTypeInput();
+  }
+
+  function updateCustomMealTypeInput() {
+    const isCustom = els.mealType.value === "Custom";
+    els.customMealTypeWrap.hidden = !isCustom;
+    els.customMealTypeName.required = isCustom && Boolean(state.sessionToken);
+    if (!isCustom) els.customMealTypeName.value = "";
   }
 
   function setDetectedLocation() {
@@ -515,13 +648,25 @@
       state.currentMealId = null;
       els.mealPreview.src = state.photoDataUrl;
       els.workspace.hidden = false;
-      els.analysisNote.textContent = "Photo ready. Run analysis, then review every item.";
-      analyzeCurrentPhoto();
+      if (canUseAiVision()) {
+        els.analysisNote.textContent = "Photo ready. Run analysis, then review every item.";
+        analyzeCurrentPhoto();
+      } else {
+        els.analysisNote.textContent = "Photo ready. Add food items manually, or sign in to use AI photo scanning.";
+        els.itemsFootnote.textContent = "Use Add item to select foods and quantities from the nutrition reference.";
+        renderAll();
+      }
     };
     reader.readAsDataURL(file);
   }
 
   async function analyzeCurrentPhoto() {
+    if (!canUseAiVision()) {
+      els.analysisNote.textContent = "Sign in to use AI photo scanning. Guests can add food items manually.";
+      els.itemsFootnote.textContent = "Manual nutrition estimates use backend food reference data.";
+      window.location.href = "login.html?next=index.html?member=1";
+      return;
+    }
     if (!state.photoDataUrl) {
       els.analysisNote.textContent = "Choose a meal photo first.";
       return;
@@ -530,7 +675,7 @@
     els.analyzeButton.textContent = "Analyzing...";
     els.analysisNote.textContent = "Checking the meal photo and identifying visible foods.";
     try {
-      const response = await fetch("/api/analyze", {
+      const response = await fetchWithAccess("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -556,6 +701,10 @@
       els.analyzeButton.textContent = "Analyze photo";
       renderAll();
     }
+  }
+
+  function canUseAiVision() {
+    return Boolean(state.memberMode && state.sessionToken);
   }
 
   function runDemoVisionAnalysis({ fileName, location, references }) {
@@ -623,7 +772,8 @@
       needsUserReview: true,
       sourceName: "Manual entry, waiting for foodtable match",
       manualEntry: true,
-      base: createManualNutritionPlaceholder("")
+      base: createManualNutritionPlaceholder(""),
+      nutritionUnknown: false
     });
   }
 
@@ -644,7 +794,8 @@
         ? `Regional nutrition estimate (${ingredient.regionalRegion || "India"})`
         : ingredient ? "Ingredient nutrition estimate" : meal ? "Meal nutrition estimate" : "Needs nutrition lookup",
       manualEntry: false,
-      base
+      base,
+      nutritionUnknown: false
     });
   }
 
@@ -659,6 +810,7 @@
       needsUserReview: true,
       sourceName: "User review needed",
       manualEntry: false,
+      nutritionUnknown: false,
       base: {
         name: "Unclear food item",
         calories: 250,
@@ -690,10 +842,11 @@
           </div>
           <div class="item-meta">
             ${confidenceMarkup(item)}
-            <span>${item.needsUserReview ? "Confirm manually" : "Review optional"}</span>
+            ${nutritionStatusMarkup(item)}
           </div>
           <p class="review-note">${escapeHtml(item.uncertaintyNote)}</p>
           <p class="review-note calculation-note">${escapeHtml(calculationBasisText(item))}</p>
+          ${itemResolutionMarkup(item)}
         </td>
         <td>${amountMarkup(item, "data-field")}</td>
         <td>${portionSummaryMarkup(item, "item")}</td>
@@ -717,6 +870,9 @@
         }
       });
       bindSuggestionClicks(row, (value) => updateItem(item.id, "foodName", value));
+      row.querySelector("[data-match-nearest]")?.addEventListener("click", () => matchNearestReference(item.id));
+      row.querySelector("[data-save-unknown]")?.addEventListener("click", () => markNutritionUnknown(item.id));
+      row.querySelector("[data-enter-nutrition]")?.addEventListener("click", () => enableManualNutrition(item.id));
       row.querySelector("[data-portion-toggle]")?.addEventListener("click", () => togglePortionEditor(item.id));
       row.querySelector("[data-remove]").addEventListener("click", () => removeItem(item.id));
       els.itemsBody.appendChild(row);
@@ -726,6 +882,15 @@
         editorRow.innerHTML = `<td colspan="4">${portionEditorMarkup(item, "data-field")}</td>`;
         bindPortionEditor(editorRow, item.id, updateItem);
         els.itemsBody.appendChild(editorRow);
+      }
+      if (itemNeedsManualNutrition(item)) {
+        const manualRow = document.createElement("tr");
+        manualRow.className = "manual-nutrition-row";
+        manualRow.innerHTML = `<td colspan="4">${manualNutritionPanelMarkup(item)}</td>`;
+        manualRow.querySelectorAll("[data-nutrient]").forEach((input) => {
+          input.addEventListener("input", (event) => updateManualNutrient(item.id, event.target.dataset.nutrient, event.target.value));
+        });
+        els.itemsBody.appendChild(manualRow);
       }
     });
   }
@@ -832,8 +997,33 @@
     return `<span class="confidence"><i class="dot ${level}"></i>${percent}% <button class="info-button" type="button" title="${escapeAttr(basis)}" aria-label="${escapeAttr(basis)}">i</button></span>`;
   }
 
+  function nutritionStatusMarkup(item) {
+    if (item.nutritionUnknown) {
+      return "<span class=\"nutrition-status unknown\">Saved without nutrition</span>";
+    }
+    if (usesStoredNutritionReference(item)) {
+      return "<span class=\"nutrition-status matched\">Database match</span>";
+    }
+    if (itemNeedsManualNutrition(item)) {
+      return "<span class=\"nutrition-status manual\">Manual nutrition</span>";
+    }
+    return "<span class=\"nutrition-status needs\">Needs resolution</span>";
+  }
+
+  function itemResolutionMarkup(item) {
+    if (usesStoredNutritionReference(item) || item.nutritionUnknown || itemNeedsManualNutrition(item)) return "";
+    const label = escapeAttr(item.foodName || "this item");
+    return `
+      <div class="item-resolution" aria-label="Resolve nutrition source for ${label}">
+        <button class="mini-action primary-mini" type="button" data-match-nearest="${item.id}">Find nearest match</button>
+        <button class="mini-action" type="button" data-enter-nutrition="${item.id}">Enter nutrition</button>
+        <button class="mini-action muted" type="button" data-save-unknown="${item.id}">Save as unknown</button>
+      </div>
+    `;
+  }
+
   function unitOptions() {
-    return ["serving", "cup", "cups", "piece", "pieces", "slice", "slices", "grams", "bowl", "plate", "tbsp"];
+    return ["grams", "piece", "pieces", "slice", "slices", "serving", "cup", "cups", "bowl", "plate", "tbsp"];
   }
 
   function amountMarkup(item, fieldAttr) {
@@ -1135,6 +1325,54 @@
     }
   }
 
+  function matchNearestReference(id) {
+    const item = state.items.find((entry) => entry.id === id);
+    if (!item) return;
+    const nearest = foodSuggestions(item.foodName)
+      .map((suggestion) => ({ suggestion, reference: findReference(suggestion.name) }))
+      .find((entry) => entry.reference);
+    if (!nearest) {
+      els.saveMessage.textContent = `No database match found for "${item.foodName || "this item"}". Enter nutrition manually or save it as unknown.`;
+      return;
+    }
+    applyFoodNameChange(item, nearest.suggestion.name, findReference);
+    item.uncertaintyNote = `Nearest database match selected: ${nearest.suggestion.name}. Review quantity and unit before saving.`;
+    els.saveMessage.textContent = `Matched "${item.foodName}" to stored nutrition data.`;
+    renderAll();
+  }
+
+  function markNutritionUnknown(id) {
+    const item = state.items.find((entry) => entry.id === id);
+    if (!item) return;
+    item.base = null;
+    item.referenceBase = null;
+    item.nutritionUnknown = true;
+    item.manualEntry = true;
+    item.needsUserReview = false;
+    item.unsupportedUnit = false;
+    item.sourceName = "Unknown nutrition - excluded from totals";
+    item.uncertaintyNote = "Saved without nutrition values. This item is kept in the meal record but excluded from calorie and nutrient totals.";
+    clearPortionData(item);
+    els.saveMessage.textContent = `"${item.foodName || "This item"}" will be saved without nutrition values.`;
+    renderAll();
+  }
+
+  function enableManualNutrition(id) {
+    const item = state.items.find((entry) => entry.id === id);
+    if (!item) return;
+    item.base = createManualNutritionPlaceholder(item.foodName);
+    item.referenceBase = null;
+    item.nutritionUnknown = false;
+    item.manualEntry = true;
+    item.needsUserReview = true;
+    item.unsupportedUnit = false;
+    item.sourceName = "Manual nutrition values";
+    item.uncertaintyNote = "Enter the nutrition values you know for this quantity. Blank fields save as zero.";
+    clearPortionData(item);
+    els.saveMessage.textContent = `Manual nutrition entry enabled for "${item.foodName || "this item"}".`;
+    renderAll();
+  }
+
   function updateManualNutrient(id, key, value) {
     const item = state.manualDraft && state.manualDraft.id === id
       ? state.manualDraft
@@ -1244,6 +1482,10 @@
       ["Iron", totals.iron, "mg", GOALS.iron],
       ["Vitamin C", totals.vitaminC, "mg", GOALS.vitaminC]
     ]);
+    const unknownCount = state.items.filter((item) => item.nutritionUnknown).length;
+    if (unknownCount > 0) {
+      els.itemsFootnote.textContent = `Totals exclude ${unknownCount} item${unknownCount === 1 ? "" : "s"} saved without nutrition values.`;
+    }
   }
 
   function renderNutrients(container, rows) {
@@ -1545,8 +1787,23 @@
   }
 
   async function saveReviewedMeal() {
+    if (!state.sessionToken) {
+      els.saveMessage.textContent = "Please log in to save this reviewed meal to your dashboard.";
+      window.location.href = "login.html?next=index.html?member=1";
+      return;
+    }
+    if (els.mealType.value === "Custom" && !els.customMealTypeName.value.trim()) {
+      els.saveMessage.textContent = "Add a custom meal name before saving.";
+      els.customMealTypeName.focus();
+      return;
+    }
     if (!state.items.length) {
       els.saveMessage.textContent = "Add or analyze at least one item.";
+      return;
+    }
+    const unresolvedItem = state.items.find((item) => !usesStoredNutritionReference(item) && !itemNeedsManualNutrition(item) && !item.nutritionUnknown);
+    if (unresolvedItem) {
+      els.saveMessage.textContent = `Resolve "${unresolvedItem.foodName || "this item"}": find a database match, enter nutrition manually, or save it as unknown.`;
       return;
     }
     const needsReview = state.items.some((item) => item.needsUserReview && item.foodName.toLowerCase().includes("unclear"));
@@ -1568,6 +1825,12 @@
       if (!response.ok) throw new Error(savedMeal.error || "Meal save failed.");
       state.currentMealId = savedMeal.id;
       state.history = upsertHistoryMeal(savedMeal, state.history).slice(0, 25);
+      if (els.mealType.value === "Custom") {
+        state.customMealTypes = uniqueStrings([...state.customMealTypes, savedMeal.mealType]);
+        renderMealTypeOptions();
+        els.mealType.value = savedMeal.mealType;
+        updateCustomMealTypeInput();
+      }
       localStorage.setItem("nutritracker.history", JSON.stringify(state.history));
       els.saveMessage.textContent = "Saved reviewed meal.";
       renderHistory();
@@ -1592,7 +1855,8 @@
     const calculationItems = currentCalculationItems();
     const totals = calculateTotals(calculationItems);
     return {
-      mealType: els.mealType.value,
+      mealType: selectedMealType(),
+      customMealTypeName: els.mealType.value === "Custom" ? els.customMealTypeName.value.trim() : "",
       eatenAt: els.mealTime.value,
       location: els.userLocation.value,
       city: els.userCity.value,
@@ -1607,6 +1871,7 @@
         uncertaintyNote: item.uncertaintyNote,
         sourceName: item.sourceName,
         manualEntry: item.manualEntry || false,
+        nutritionUnknown: Boolean(item.nutritionUnknown),
         base: itemNeedsManualNutrition(item) ? item.base : null,
         unsupportedUnit: item.unsupportedUnit || false,
         portionSize: item.portionSize || "",
@@ -1617,10 +1882,22 @@
         diameterValue: item.diameterValue || null,
         diameterUnit: item.diameterUnit || "",
         thickness: item.thickness || "",
-        nutrition: calculateTotals([item])
+        nutrition: item.nutritionUnknown ? emptyTotals() : calculateTotals([item])
       })),
       totals,
     };
+  }
+
+  function selectedMealType() {
+    return els.mealType.value === "Custom" ? els.customMealTypeName.value.trim() : els.mealType.value;
+  }
+
+  function usesStoredNutritionReference(item) {
+    if (!item || !item.base || item.unsupportedUnit) return false;
+    if (item.base.editableNutrition) return false;
+    if (/manual entry|nutrition values needed|user review needed|needs nutrition lookup/i.test(item.sourceName || "")) return false;
+    if (/^unclear food item$/i.test(item.foodName || "")) return false;
+    return true;
   }
 
   function renderHistory() {
@@ -1654,7 +1931,7 @@
     if (!meal) return;
     state.currentMealId = meal.id;
     state.items = meal.items.map((saved) => {
-      const ref = findReference(saved.foodName) || fallbackReferences()[0];
+      const ref = saved.nutritionUnknown ? null : findReference(saved.foodName);
       const base = saved.base || ref;
       const item = {
         id: crypto.randomUUID(),
@@ -1666,6 +1943,8 @@
         needsUserReview: Boolean(saved.unsupportedUnit || (base && base.editableNutrition)),
         sourceName: saved.sourceName,
         manualEntry: saved.manualEntry || false,
+        manualNutrition: Boolean(base && base.editableNutrition && !saved.nutritionUnknown),
+        nutritionUnknown: Boolean(saved.nutritionUnknown),
         unsupportedUnit: saved.unsupportedUnit || false,
         portionSize: saved.portionSize || "",
         gramsPerUnit: saved.gramsPerUnit || null,
@@ -1679,7 +1958,13 @@
       };
       return applyPortionDefaults(item, { keepExisting: true });
     });
+    state.mealTypeManuallySelected = true;
+    if (![...Array.from(els.mealType.options)].some((option) => option.value === meal.mealType)) {
+      state.customMealTypes = uniqueStrings([...state.customMealTypes, meal.mealType]);
+      renderMealTypeOptions();
+    }
     els.mealType.value = meal.mealType;
+    updateCustomMealTypeInput();
     els.mealTime.value = meal.eatenAt;
     els.userLocation.value = meal.location;
     els.userCity.value = meal.city || "";
@@ -1702,6 +1987,10 @@
     state.history = [];
     localStorage.removeItem("nutritracker.history");
     renderHistory();
+    if (!state.sessionToken) {
+      state.currentMealId = null;
+      return;
+    }
     await Promise.all(meals.map((meal) => fetchWithAccess(`/api/meals/${encodeURIComponent(meal.id)}`, {
       method: "DELETE"
     }).catch(() => null)));
@@ -1717,6 +2006,11 @@
   }
 
   async function loadMealHistory() {
+    if (!state.sessionToken) {
+      state.history = [];
+      renderHistory();
+      return;
+    }
     try {
       const response = await fetchWithAccess("/api/meals", { cache: "no-store" });
       if (!response.ok) throw new Error("Backend history unavailable.");
@@ -1740,6 +2034,7 @@
     item.foodName = value;
     const match = lookup(value);
     if (match) {
+      item.nutritionUnknown = false;
       item.base = match;
       item.referenceBase = match;
       item.manualEntry = item.manualEntry || false;
@@ -1758,6 +2053,7 @@
       return item;
     }
 
+    item.nutritionUnknown = false;
     item.base = createManualNutritionPlaceholder(value);
     item.sourceName = "Manual entry, nutrition values needed";
     item.confidence = null;
@@ -1847,7 +2143,7 @@
   }
 
   function itemNeedsManualNutrition(item) {
-    return Boolean(item.manualEntry && item.base && (item.base.editableNutrition || item.unsupportedUnit));
+    return Boolean(item && !item.nutritionUnknown && item.base && item.base.editableNutrition && (item.manualNutrition || item.unsupportedUnit));
   }
 
   function manualNutritionMessage(item) {
@@ -2142,6 +2438,10 @@
       "\"": "&quot;",
       "'": "&#039;"
     }[char]));
+  }
+
+  function uniqueStrings(values) {
+    return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
   }
 
   function escapeAttr(value) {
