@@ -22,6 +22,8 @@ for (const directory of ["icons", "source"]) {
   fs.cpSync(path.join(root, directory), path.join(client, directory), { recursive: true });
 }
 
+fs.copyFileSync(path.join(root, "public", "og.png"), path.join(client, "og.png"));
+
 fs.writeFileSync(path.join(server, "index.js"), `export default {
   async fetch(request, env) {
     const url = new URL(request.url);

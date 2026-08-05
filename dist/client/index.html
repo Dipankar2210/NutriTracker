@@ -7,6 +7,15 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="NutriTracker" />
     <meta name="description" content="NutriMate turns a meal photo into a clear, reviewable nutrition estimate with calories, macros, and meal history." />
+    <meta property="og:title" content="NutriMate — Eat informed. Live better." />
+    <meta property="og:description" content="Turn a meal photo into a clear, reviewable nutrition estimate." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://nutrimate-meal-tracker.dipankar-dey83.chatgpt.site" />
+    <meta property="og:image" content="https://nutrimate-meal-tracker.dipankar-dey83.chatgpt.site/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="NutriMate — Eat informed. Live better." />
+    <meta name="twitter:description" content="Turn a meal photo into a clear, reviewable nutrition estimate." />
+    <meta name="twitter:image" content="https://nutrimate-meal-tracker.dipankar-dey83.chatgpt.site/og.png" />
     <title>NutriMate — Know what’s on your plate</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/nutritracker-icon.svg" type="image/svg+xml" />
@@ -26,13 +35,13 @@
     <main class="app-shell">
       <section class="marketing-hero" id="top">
         <div class="hero-copy">
-          <p class="eyebrow">Nutrition clarity, one meal at a time</p>
-          <h1>Know what’s on<br />your <em>plate.</em></h1>
-          <p class="brand-copy" id="homeIntro">Upload a meal photo. Review the foods and portions. Get a practical estimate of calories, protein, carbs, fat, and key nutrients.</p>
+          <p class="eyebrow">A smarter way to understand everyday food</p>
+          <h1>Eat informed.<br /><em>Live better.</em></h1>
+          <p class="brand-copy" id="homeIntro">Turn a meal photo into a clear, reviewable nutrition estimate—so you can make better everyday choices without tedious food logging.</p>
           <p class="sr-only" id="homeAccessNote">Guests can estimate nutrition manually. Registered users can sign in for AI photo scanning, saved meals, and dashboard history.</p>
           <div class="hero-actions">
-            <a class="primary action-button" href="#try">Estimate a meal</a>
-            <a class="text-link" href="#how-it-works">See how it works <span aria-hidden="true">→</span></a>
+            <a class="primary action-button hero-primary" href="#try">Try NutriMate free <span aria-hidden="true">→</span></a>
+            <a class="text-link" href="#how-it-works">See the 3-step flow <span aria-hidden="true">↓</span></a>
           </div>
           <div class="hero-pills" aria-label="Available features">
             <span id="homePillOne">No guesswork</span>
@@ -41,6 +50,7 @@
           </div>
         </div>
         <div class="hero-visual" aria-label="NutriMate meal analysis preview">
+          <div class="orbit orbit-one"><span>AI</span></div><div class="orbit orbit-two"><span>✓</span></div>
           <img src="source/sample.png" alt="A meal being reviewed in a nutrition dashboard" />
           <div class="floating-card calories-float"><small>Meal estimate</small><strong>642 <span>kcal</span></strong></div>
           <div class="floating-card protein-float"><span class="mini-icon">P</span><div><small>Protein</small><strong>38g</strong></div></div>
@@ -49,7 +59,13 @@
       </section>
 
       <section class="trust-strip" aria-label="NutriMate principles">
-        <span>Photo or manual entry</span><span>Editable portions</span><span>Nutrition estimates</span><span>Private meal history</span>
+        <span>Built for real meals</span><span>Always editable</span><span>Clear confidence labels</span><span>Your history, in one place</span>
+      </section>
+
+      <section class="outcome-grid reveal-section" aria-label="NutriMate customer benefits">
+        <article><strong>Less logging</strong><span>Start with a photo instead of building every meal from scratch.</span></article>
+        <article><strong>More confidence</strong><span>See what the app recognized and correct what it didn’t.</span></article>
+        <article><strong>Better patterns</strong><span>Connect individual meals to your daily calorie and macro picture.</span></article>
       </section>
 
       <section class="marketing-section" id="how-it-works">
@@ -67,7 +83,25 @@
         <div class="macro-card"><div class="macro-head"><div><small>Today’s nutrition</small><strong>1,840 <span>kcal</span></strong></div><span>On track</span></div><div class="macro-ring"><div><strong>72%</strong><small>daily goal</small></div></div><div class="macro-bars"><label>Protein <b>96g</b><i><span style="width:76%"></span></i></label><label>Carbs <b>214g</b><i><span style="width:64%"></span></i></label><label>Fat <b>58g</b><i><span style="width:52%"></span></i></label></div></div>
       </section>
 
+      <section class="audience-section reveal-section">
+        <div class="audience-intro"><p class="eyebrow">Designed around your day</p><h2>One tool. Different goals.</h2><p>Whether you’re building healthier habits or simply curious about your food, NutriMate meets you where you are.</p></div>
+        <div class="audience-cards">
+          <article class="audience-card active"><span class="audience-icon">↗</span><small>Build consistency</small><h3>For everyday wellness</h3><p>Understand meal balance and make small, sustainable adjustments over time.</p><a href="#try">Start tracking →</a></article>
+          <article class="audience-card"><span class="audience-icon">◎</span><small>Support your training</small><h3>For active lifestyles</h3><p>Keep protein, carbohydrates, and total energy visible around your routine.</p><a href="#try">Check your macros →</a></article>
+          <article class="audience-card"><span class="audience-icon">◫</span><small>See the whole week</small><h3>For mindful planners</h3><p>Use date-based history to spot patterns instead of judging a single meal.</p><a href="#try">Explore the dashboard →</a></article>
+        </div>
+      </section>
+
+      <section class="value-story reveal-section">
+        <div class="value-visual"><div class="phone-frame"><div class="phone-top"><span></span></div><div class="phone-meal"><img src="source/sample.png" alt="Meal ready for nutrition review" /></div><div class="scan-line"></div><div class="phone-result"><span><i></i> Meal analyzed</span><strong>Review 4 food items</strong><button type="button" tabindex="-1">Review estimate</button></div></div><div class="ingredient-bubble bubble-a">Rice <b>180g</b></div><div class="ingredient-bubble bubble-b">Protein <b>32g</b></div><div class="ingredient-bubble bubble-c">Confidence <b>High</b></div></div>
+        <div class="value-copy"><p class="eyebrow">Clarity before commitment</p><h2>AI starts the work.<br />You make it accurate.</h2><p>NutriMate never treats a photo prediction as final. Every detected item, quantity, and database match stays open for review.</p><div class="value-points"><div><span>01</span><p><strong>Transparent estimates</strong>Nutrition stays clearly labeled until it is backed by trusted reference data.</p></div><div><span>02</span><p><strong>Human-in-the-loop review</strong>Add missing foods, remove mistakes, or switch to exact grams.</p></div><div><span>03</span><p><strong>A useful record</strong>Save the corrected version by date and meal type—not the raw AI guess.</p></div></div></div>
+      </section>
+
       <section class="privacy-band" id="privacy"><div><p class="eyebrow">Made for real life</p><h2>Your meals. Your corrections. Your data.</h2></div><p>NutriMate labels nutrition as estimates, keeps uncertain foods editable, and saves reviewed meals only for signed-in users. It’s useful guidance—not medical advice.</p></section>
+
+      <section class="faq-section reveal-section"><div><p class="eyebrow">Questions, answered</p><h2>Start with confidence.</h2></div><div class="faq-list"><details open><summary>Can I try NutriMate without an account?<span>+</span></summary><p>Yes. Guests can upload a photo as a visual reference and manually add foods for an instant estimate.</p></details><details><summary>Why do I review the AI result?<span>+</span></summary><p>Meal photos can hide ingredients and make portion sizes difficult to judge. Review keeps you in control of the final record.</p></details><details><summary>Does NutriMate give medical advice?<span>+</span></summary><p>No. Nutrition values are practical estimates and should not replace advice from a qualified health professional.</p></details></div></section>
+
+      <section class="conversion-banner reveal-section"><div><p class="eyebrow">Make your next meal count</p><h2>See your food more clearly.</h2><p>Start with a meal photo. Leave with a better understanding of what you ate.</p></div><a class="conversion-button" href="#try">Estimate my meal <span>→</span></a><div class="banner-orb orb-a"></div><div class="banner-orb orb-b"></div></section>
 
       <section class="try-heading" id="try"><p class="eyebrow">Try it now</p><h2>What’s on your plate today?</h2><p>Upload a photo and start a free manual estimate. Sign in to use AI analysis and save meals.</p></section>
 
