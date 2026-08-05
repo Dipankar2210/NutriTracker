@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#17764a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NutriTracker" />
+    <title>NutriTracker Login</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/nutritracker-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/nutritracker-icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="login-hero" aria-labelledby="loginTitle">
+        <div class="login-copy">
+          <p class="eyebrow">Meal nutrition tracker</p>
+          <h1 id="loginTitle">NutriTracker</h1>
+          <p class="brand-copy">Sign in to review meal photos, save nutrition estimates, and track daily calories by date.</p>
+          <div class="login-highlights" aria-label="Account access routes">
+            <span>Admin user setup</span>
+            <span>User meal dashboard</span>
+            <span>Private reviewed records</span>
+          </div>
+        </div>
+        <form class="login-card" id="loginForm">
+          <p class="eyebrow">Account access</p>
+          <h2>Sign in</h2>
+          <p class="login-card-copy">Admins open user management. Users open their meal dashboard.</p>
+          <label>
+            Email
+            <input id="email" type="email" required autocomplete="username" placeholder="admin@example.com" />
+          </label>
+          <label>
+            Password
+            <input id="password" type="password" required autocomplete="current-password" />
+          </label>
+          <button class="primary login-submit" type="submit">Login</button>
+          <p class="login-message" id="loginMessage"></p>
+          <p class="estimate-note">Local admin for setup: admin@example.com / ChangeMe123!</p>
+        </form>
+      </section>
+    </main>
+
+    <script src="pwa.js"></script>
+    <script src="login.js"></script>
+  </body>
+</html>
