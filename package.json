@@ -5,7 +5,7 @@
   "description": "Meal nutrition tracker MVP",
   "scripts": {
     "dev": "node scripts/server.js",
-    "build": "node tests/nutrition.test.js && node tests/meals-db.test.js",
+    "build": "node tests/nutrition.test.js && node tests/meals-db.test.js && node scripts/build-sites.js",
     "test": "node tests/nutrition.test.js && node tests/meals-db.test.js"
   },
   "dependencies": {

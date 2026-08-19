@@ -101,15 +101,43 @@ const saved = mealsDb.createMeal({
         iron: 3.12,
         vitaminC: 12
       }
+    },
+    {
+      foodName: "Coffee with unknown add-ins",
+      quantity: 1,
+      unit: "cup",
+      confidence: null,
+      needsUserReview: false,
+      uncertaintyNote: "User saved without nutrition values.",
+      sourceName: "Unknown nutrition - excluded from totals",
+      manualEntry: true,
+      nutritionUnknown: true,
+      nutrition: {
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+        sugar: 0,
+        sodium: 0,
+        cholesterol: 0,
+        saturatedFat: 0,
+        potassium: 0,
+        calcium: 0,
+        iron: 0,
+        vitaminC: 0
+      }
     }
   ]
 });
 
 assert.equal(saved.mealType, "lunch");
 assert.equal(saved.photo, "", "photo should not be saved without explicit consent");
-assert.equal(saved.items.length, 1);
+assert.equal(saved.items.length, 2);
 assert.equal(saved.items[0].portionSize, "medium");
 assert.equal(saved.items[0].totalGrams, 70);
+assert.equal(saved.items[1].nutritionUnknown, true);
+assert.equal(saved.items[1].nutrition.calories, 0);
 assert.equal(Math.round(saved.totals.calories), 560);
 
 const loaded = mealsDb.getMeal(saved.id);
@@ -259,6 +287,41 @@ const userMeal = mealsDb.createMeal({
   ]
 });
 
+const customUserMeal = mealsDb.createMeal({
+  userId: createdUser.user.id,
+  mealType: "Custom",
+  customMealTypeName: "Pre-workout meal",
+  eatenAt: "2026-05-14T17:30",
+  items: [
+    {
+      foodName: "Banana",
+      quantity: 1,
+      unit: "piece",
+      confidence: 0.9,
+      sourceName: "Ingredient nutrition estimate",
+      nutrition: {
+        calories: 105,
+        protein: 1.3,
+        carbs: 27,
+        fat: 0.4,
+        fiber: 3,
+        sugar: 14,
+        sodium: 1,
+        cholesterol: 0,
+        saturatedFat: 0,
+        potassium: 422,
+        calcium: 6,
+        iron: 0.3,
+        vitaminC: 10
+      }
+    }
+  ]
+});
+
+assert.equal(customUserMeal.mealType, "Pre-workout meal");
+assert.deepEqual(mealsDb.listUserMealTypes(createdUser.user.id), ["Pre-workout meal"]);
+assert.deepEqual(mealsDb.listUserMealTypes(secondUser.user.id), []);
+
 mealsDb.createMeal({
   userId: secondUser.user.id,
   mealType: "snack",
@@ -290,8 +353,9 @@ mealsDb.createMeal({
 });
 
 const ashaMeals = mealsDb.listMeals({ userId: createdUser.user.id });
-assert.equal(ashaMeals.length, 1);
-assert.equal(ashaMeals[0].id, userMeal.id);
+assert.equal(ashaMeals.length, 2);
+assert.ok(ashaMeals.some((meal) => meal.id === userMeal.id));
+assert.ok(ashaMeals.some((meal) => meal.id === customUserMeal.id));
 assert.equal(ashaMeals[0].userId, createdUser.user.id);
 
 const benMeals = mealsDb.listMeals({ userId: secondUser.user.id });
@@ -303,10 +367,10 @@ assert.equal(dashboard.user.displayName, "Asha Patel");
 assert.equal(dashboard.goals.dailyCalories, 1800);
 assert.equal(dashboard.days.length, 1);
 assert.equal(dashboard.days[0].date, "2026-05-14");
-assert.equal(dashboard.days[0].mealCount, 1);
-assert.equal(Math.round(dashboard.days[0].calories), 320);
-assert.equal(Math.round(dashboard.totals.calories), 320);
-assert.equal(dashboard.recentMeals.length, 1);
+assert.equal(dashboard.days[0].mealCount, 2);
+assert.equal(Math.round(dashboard.days[0].calories), 425);
+assert.equal(Math.round(dashboard.totals.calories), 425);
+assert.equal(dashboard.recentMeals.length, 2);
 
 const unsubscribed = mealsDb.unsubscribeUser(createdUser.user.id);
 assert.equal(unsubscribed.status, "unsubscribed");

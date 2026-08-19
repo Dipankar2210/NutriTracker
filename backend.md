@@ -4,10 +4,10 @@
 You are a senior backend engineer working on my Meal Nutrition Tracker app.
 
 Project context:
-- The app lets users upload a meal photo, uses AI vision to detect food items and quantities, lets the user review/edit the result, then saves the corrected meal by date and meal type.
+- The app lets guests upload a meal photo and manually add foods for estimated nutrition. Signed-in users can use AI vision to detect food items and quantities, review/edit the result, then save the corrected meal by date and meal type.
 - The next MVP step adds admin login, admin-created users, first-time magic-link password setup, user login, roles, permissions, and unsubscribe soft delete.
 - Admin creates a basic user profile, then personally shares a setup magic link with the user.
-- User opens the setup magic link to create a password, then logs in to access their own profile dashboard, upload meals, and review saved history.
+- User opens the setup magic link to create a password, then logs in to access AI photo scanning, their own profile dashboard, saved meals, and review history.
 - Current app has a small Node.js server in scripts/server.js.
 - Current backend already has:
   - POST /api/analyze
@@ -65,7 +65,8 @@ User onboarding rules:
 Role and permission rules:
 - Supported roles are `admin` and `user`.
 - Admin users can create users, view users, update user basics, rotate setup links, and promote or demote other users where allowed.
-- Normal users can add meals, review and save meals, view their own profile dashboard, view calendar history, view meal details, and unsubscribe.
+- Guests can manually estimate nutrition from backend food reference data, but cannot use AI photo scanning, save meals, or access dashboards.
+- Normal users can use AI photo scanning, add meals, review and save meals, view their own profile dashboard, view calendar history, view meal details, and unsubscribe.
 - Normal users must not access admin pages or admin APIs.
 - Role changes must require an authenticated admin session.
 - Soft-deleted or inactive users must not be able to log in or use meal APIs.
@@ -76,6 +77,8 @@ Profile dashboard goals:
 - Show daily calories and macro totals.
 - Show meal count by day.
 - Let the user select a date and deep dive into saved meals for that date.
+- Let the user filter saved meals by standard meal type and their own custom meal type names.
+- Custom meal type names must stay scoped to the authenticated user and must not appear for other users.
 - Return meal detail data with photo, reviewed items, quantities, confidence labels, nutrition totals, and nutrient table values.
 - Keep the dashboard read-first for the first implementation. Saved meal editing can build on existing meal update APIs later.
 
@@ -171,6 +174,10 @@ Required APIs:
   - Support date and meal type filtering.
   - This can call the same meal service as GET /api/meals, but must be user-scoped.
 
+- GET /api/users/me/meal-types
+  - Return only the authenticated user's custom meal type names.
+  - Do not return custom names created by other users.
+
 - GET /api/users/me/meals/:id
   - Return one current-user meal with items and nutrition detail.
 
@@ -181,7 +188,7 @@ Required APIs:
   - Keep records isolated and hidden from normal active dashboards.
 
 - POST /api/analyze
-  - Keep existing behavior.
+  - Require authenticated user or admin session.
   - Accept uploaded image data.
   - Return AI-detected food items with foodName, quantity, unit, confidence, uncertaintyNote, and evidence.
 
@@ -189,6 +196,11 @@ Required APIs:
   - Save only reviewed/corrected meal data.
   - Associate the meal with the current authenticated user.
   - Save meal type, eatenAt date/time, location/city if provided, totals, items, and optional photo only if user consent is true.
+  - If the user saves a custom meal type name, persist it in a user-scoped meal type table and use that custom name as the saved meal type.
+  - Final nutrition totals must come from stored food reference values and reviewed measurements, not AI-provided nutrition numbers.
+  - Do not silently save unresolved placeholders. The frontend should ask the user to choose a nearest database match, enter manual nutrition, or explicitly save the item as unknown nutrition.
+  - Items explicitly saved as unknown nutrition should be persisted in the meal record and excluded from calorie and nutrient totals.
+  - Preserve reviewed calculation fields such as unit, total grams, grams per unit, and nutrition basis when available.
   - Store original AI detection result when useful for audit, but do not present it as verified truth.
 
 - GET /api/meals
@@ -267,6 +279,17 @@ Database tables:
   - daily_fat nullable
   - daily_carbs nullable
   - daily_fiber nullable
+  - daily_sodium nullable
+  - created_at
+  - updated_at
+
+- user_meal_types
+  - id
+  - user_id
+  - name
+  - created_at
+  - updated_at
+  - unique per user_id and name; never global
   - daily_sodium nullable
   - created_at
   - updated_at

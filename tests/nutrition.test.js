@@ -54,6 +54,19 @@ const ingredientTotals = calculateTotals([
 assert.equal(Math.round(ingredientTotals.calories), 330);
 assert.equal(Math.round(ingredientTotals.protein), 62);
 
+const repeatedIngredientTotals = calculateTotals([
+  {
+    id: "repeat-test",
+    foodName: "Chicken breast",
+    quantity: 200,
+    unit: "grams",
+    confidence: 0.4,
+    base: chicken
+  }
+]);
+
+assert.deepEqual(repeatedIngredientTotals, ingredientTotals, "same database food and grams should always calculate the same totals regardless of AI confidence");
+
 const perGramTotals = calculateTotals([
   {
     id: "per-gram-test",
